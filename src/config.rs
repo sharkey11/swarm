@@ -136,7 +136,14 @@ fn default_status_style() -> String {
 }
 
 fn default_branch_prefix() -> String {
-	"sharkey11/".to_string()
+	// Try to get git username, fallback to empty
+	std::process::Command::new("git")
+		.args(["config", "--get", "user.name"])
+		.output()
+		.ok()
+		.and_then(|o| String::from_utf8(o.stdout).ok())
+		.map(|s| format!("{}/", s.trim().to_lowercase().replace(' ', "-")))
+		.unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
