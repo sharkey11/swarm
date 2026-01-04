@@ -36,6 +36,7 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 | Key | Action |
 |-----|--------|
 | **Enter** | Send input (opens modal for quick reply) |
+| **Shift+Tab** | Cycle Claude mode (plan → standard → auto-accept) |
 | **1-9** | Navigate to agent (select, not attach) |
 | **a** | Attach (full tmux takeover) |
 | **n** | New agent (creates task file) |
@@ -153,6 +154,16 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 7. [ ] Modal closes, normal TUI shows
 8. [ ] Run swarm again - no modal (hooks_installed = true now)
 
+### Flow 9: Mode Cycling (Shift+Tab)
+**Scenario:** Cycle Claude Code between plan/standard/auto-accept modes
+
+1. [ ] Select an agent
+2. [ ] Press `Shift+Tab`
+3. [ ] Status message shows "Sent Shift+Tab to <agent> (cycle mode)"
+4. [ ] If attached, Claude Code cycles through modes
+
+**Note:** This sends the actual Shift+Tab keystroke to Claude Code inside the tmux session.
+
 ---
 
 ## Test Checklist
@@ -160,10 +171,11 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 ### Agents View
 - [ ] Numbers 1-9 shown next to agents for quick nav
 - [ ] Status indicators cycle with `s` key (3 styles: unicode/emoji/text)
+- [ ] Shift+Tab sends mode cycle keystroke to selected agent
 - [ ] Header shows "(N need input)" when any agents waiting
 - [ ] Preview shows live output (bottom-anchored)
 - [ ] Prompt lines highlighted in yellow/bold
-- [ ] Details panel shows: name, status, last output, task info
+- [ ] Details panel shows: task path, repo path, tmux read command
 - [ ] Mini-log snippet shown in agent list row
 - [ ] YOLO sessions show ⚠️ indicator
 
