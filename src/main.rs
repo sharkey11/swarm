@@ -415,13 +415,14 @@ fn handle_new(
 
 	// Build Claude flags:
 	// - YOLO mode: --dangerously-skip-permissions (bypasses everything)
-	// - Normal mode: --permission-mode acceptEdits (auto-accepts file edits, still prompts for bash)
+	// - Normal mode: --permission-mode acceptEdits + --allowedTools for safe commands
 	let claude_flags = if auto_accept && agent == "claude" {
-		" --dangerously-skip-permissions"
+		" --dangerously-skip-permissions".to_string()
 	} else if agent == "claude" {
-		" --permission-mode acceptEdits"
+		let allowed_tools = format_allowed_tools(&cfg.allowed_tools.tools);
+		format!(" --permission-mode acceptEdits {}", allowed_tools)
 	} else {
-		""
+		String::new()
 	};
 
 	let command = match (agent.as_str(), &initial_prompt) {
@@ -461,6 +462,18 @@ fn handle_new(
 		);
 	}
 	Ok(())
+}
+
+/// Formats the allowed tools list as CLI flags for Claude Code.
+fn format_allowed_tools(tools: &[String]) -> String {
+	if tools.is_empty() {
+		return String::new();
+	}
+	tools
+		.iter()
+		.map(|t| format!("--allowedTools \"{}\"", t))
+		.collect::<Vec<_>>()
+		.join(" ")
 }
 
 fn resolve_repo_path(input: &str) -> Result<PathBuf> {
@@ -1940,9 +1953,11 @@ fn agent_details(sel: &AgentSession) -> String {
 		.ok()
 		.flatten()
 		.unwrap_or_else(|| "-".to_string());
+	// Command another Claude can use to read this agent's output
+	let read_cmd = format!("tmux capture-pane -p -S -500 -t {}", sel.session_name);
 	format!(
-		"Name: {}\nStatus: {}\nLast output: {}\nTask: {}\nTask path: {}\nRepo: {}",
-		sel.name, status, last_output, task_title, task_path, repo_path
+		"Name: {}\nStatus: {}\nLast output: {}\nTask: {}\nTask path: {}\nRepo: {}\n\nTo read from another Claude:\n{}",
+		sel.name, status, last_output, task_title, task_path, repo_path, read_cmd
 	)
 }
 
