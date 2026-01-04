@@ -2,32 +2,7 @@
 
 Terminal dashboard for managing multiple AI coding agents in parallel. See who needs attention. Never lose track.
 
-<!-- TODO: Add screenshot here -->
-
-```
-╭──────────────────────────────────────────────────────────────────────────────╮
-│ Agents (2 need input)                                                        │
-├──────────────────────────────────────────────────────────────────────────────┤
-│  1 ● auth-bug           [WAIT] Should I proceed with...                      │
-│  2   api-refactor       Running tests...                                     │
-│  3 ● payment-flow       [WAIT] Which approach do you...                      │
-│  4   docs-update        Writing documentation...                             │
-╰──────────────────────────────────────────────────────────────────────────────╯
-```
-
-## Features
-
-- **Dashboard view** - See all your AI agents at a glance
-- **Needs input detection** - Instantly see which agents are waiting for you
-- **Quick reply** - Send input without leaving the dashboard (Enter key)
-- **Task tracking** - Associate agents with task files for context persistence
-- **Auto-updates** - Run `swarm update` to get the latest version
-- **YOLO mode** - Auto-accept permissions for trusted tasks
-- **Claude hooks** - Built-in slash commands (/done, /log, /interview)
-
 ## Install
-
-### From source (Cargo)
 
 ```bash
 cargo install --git https://github.com/whopio/swarm
@@ -35,12 +10,7 @@ cargo install --git https://github.com/whopio/swarm
 
 After install, `swarm` is available globally (Cargo adds `~/.cargo/bin` to your PATH).
 
-### Homebrew (coming soon)
-
-```bash
-brew tap whopio/tap
-brew install swarm
-```
+**Requirements:** macOS, [tmux](https://github.com/tmux/tmux), [Claude Code](https://claude.ai/code)
 
 ## Quick Start
 
@@ -48,8 +18,7 @@ brew install swarm
 # Launch the dashboard
 swarm
 
-# Create a new agent
-# Press 'n' in the dashboard, or:
+# Create a new agent (press 'n' in dashboard, or):
 swarm new "Fix the auth bug"
 
 # Check status without opening TUI
@@ -59,6 +28,35 @@ swarm status
 swarm update
 ```
 
+## Screenshot
+
+```
+╭─ Agents (2 need input) ─────────────╮╭─ Preview ──────────────────────────╮
+│  1 ● auth-bug         [WAIT] Sho...││ I've analyzed the authentication   │
+│  2 ▶ api-refactor     Running te...││ code and found the issue. The      │
+│  3 ● payment-flow     [WAIT] Whi...││ session token wasn't being...      │
+│  4 ▶ docs-update      Writing do...││                                    │
+│                                     ││ Should I proceed with the fix?     │
+│                                     │├─ Details ──────────────────────────┤
+│                                     ││ Task: ~/.swarm/tasks/auth-bug.md   │
+│                                     ││ Repo: ~/code/myproject             │
+╰─────────────────────────────────────╯╰─────────────────────────────────────╯
+ Agents: enter | S-Tab mode | 1-9 | a attach | n new | d done | t tasks | h | q
+```
+
+## Features
+
+- **Needs input detection** - Instantly see which agents are waiting for you (● red indicator)
+- **Desktop notifications** - Get notified when agents need input, even when swarm is in the background
+- **Quick reply** - Send input without leaving the dashboard (Enter key)
+- **Dashboard view** - See all your AI agents at a glance with live status
+- **Task tracking** - Associate agents with task files for context persistence
+- **Auto-updates** - Checks daily and updates automatically on startup
+- **Mode cycling** - Press Shift+Tab to cycle Claude between plan/standard/auto modes
+- **YOLO mode** - Auto-accept permissions for trusted tasks
+- **Allowed tools** - Configure safe commands to auto-accept in `[allowed_tools]` config
+- **Claude hooks** - Built-in slash commands (/done, /log, /interview)
+
 ## Key Bindings
 
 ### Agents View
@@ -66,12 +64,14 @@ swarm update
 | Key | Action |
 |-----|--------|
 | **Enter** | Send input to selected agent |
+| **Shift+Tab** | Cycle Claude mode (plan/standard/auto) |
 | **1-9** | Quick navigate to agent |
 | **a** | Attach (full tmux session) |
 | **n** | New agent with task |
 | **d** | Done (kill session) |
 | **t** | Switch to tasks view |
 | **s** | Cycle status style |
+| **c** | Open config in Cursor |
 | **h** | Help |
 | **q** | Quit |
 
@@ -100,13 +100,13 @@ Sessions are linked to task files in `~/.swarm/tasks/` for context persistence a
 
 ## Updating
 
-Swarm checks for updates daily and shows a notification in the TUI header when a new version is available. To update:
+Swarm auto-updates in the background. On startup, it checks for updates once per day and installs them automatically. You'll see "✨ Just updated to vX.X.X!" in the header after an update.
+
+To manually check/update:
 
 ```bash
 swarm update
 ```
-
-This downloads the latest release and replaces your binary automatically.
 
 ## Configuration
 
@@ -117,13 +117,23 @@ Config file: `~/.swarm/config.toml`
 tasks_dir = "~/.swarm/tasks"
 daily_dir = "~/.swarm/daily"
 hooks_installed = true
+status_style = "unicode"  # unicode, emoji, or text
 
 [notifications]
 enabled = true
 
-[status_style]
-style = "unicode"  # unicode, emoji, or text
+# Auto-accept these commands without prompting (uses sensible defaults)
+# Customize by adding your own patterns:
+[allowed_tools]
+tools = [
+  "Bash(git status:*)",
+  "Bash(cargo build:*)",
+  "Bash(npm run:*)",
+  # Add more patterns here...
+]
 ```
+
+**Editing allowed_tools:** Open `~/.swarm/config.toml` and add/remove patterns in the `[allowed_tools]` section. Patterns use Claude Code's tool format: `Bash(command:*)` where `*` matches any arguments.
 
 ## Claude Hooks
 
@@ -134,12 +144,6 @@ Swarm includes Claude Code slash commands that work inside your agents:
 - **/interview** - Detailed task planning before starting
 
 Hooks are installed to `~/.claude/commands/` on first run.
-
-## Requirements
-
-- macOS (Linux support coming)
-- [tmux](https://github.com/tmux/tmux)
-- [Claude Code](https://claude.ai/code) (or compatible AI coding agent)
 
 ## Development
 
