@@ -2,7 +2,33 @@
 
 Terminal dashboard for managing multiple AI coding agents in parallel. See who needs attention. Never lose track.
 
-<!-- TODO: Add screenshot here -->
+## Install
+
+```bash
+cargo install --git https://github.com/whopio/swarm
+```
+
+After install, `swarm` is available globally (Cargo adds `~/.cargo/bin` to your PATH).
+
+**Requirements:** macOS, [tmux](https://github.com/tmux/tmux), [Claude Code](https://claude.ai/code)
+
+## Quick Start
+
+```bash
+# Launch the dashboard
+swarm
+
+# Create a new agent (press 'n' in dashboard, or):
+swarm new "Fix the auth bug"
+
+# Check status without opening TUI
+swarm status
+
+# Update to latest version
+swarm update
+```
+
+## Screenshot
 
 ```
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -25,33 +51,6 @@ Terminal dashboard for managing multiple AI coding agents in parallel. See who n
 - **Auto-updates** - Checks daily and updates automatically on startup
 - **YOLO mode** - Auto-accept permissions for trusted tasks
 - **Claude hooks** - Built-in slash commands (/done, /log, /interview)
-
-## Install
-
-### From source (Cargo)
-
-```bash
-cargo install --git https://github.com/whopio/swarm
-```
-
-After install, `swarm` is available globally (Cargo adds `~/.cargo/bin` to your PATH).
-
-## Quick Start
-
-```bash
-# Launch the dashboard
-swarm
-
-# Create a new agent
-# Press 'n' in the dashboard, or:
-swarm new "Fix the auth bug"
-
-# Check status without opening TUI
-swarm status
-
-# Update to latest version
-swarm update
-```
 
 ## Key Bindings
 
@@ -128,12 +127,6 @@ Swarm includes Claude Code slash commands that work inside your agents:
 - **/interview** - Detailed task planning before starting
 
 Hooks are installed to `~/.claude/commands/` on first run.
-
-## Requirements
-
-- macOS (Linux support coming)
-- [tmux](https://github.com/tmux/tmux)
-- [Claude Code](https://claude.ai/code) (or compatible AI coding agent)
 
 ## Development
 
