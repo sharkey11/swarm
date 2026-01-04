@@ -1210,7 +1210,9 @@ work more effectively with AI coding agents:
   /done       - End session, log work
   /interview  - Detailed task planning
   /log        - Save progress to task file
+  /worktree   - Move to isolated git worktree
   /poll-pr    - Monitor PR until CI green
+  /qa-swarm   - QA test the swarm TUI
 
 Install these commands to ~/.claude/commands/?
 
@@ -1246,7 +1248,7 @@ Install these commands to ~/.claude/commands/?
 									));
 								} else {
 									status_message = Some((
-										"Hooks installed! Use /done, /interview, /log in Claude".to_string(),
+										"Hooks installed! Press h for list of Claude commands".to_string(),
 										Instant::now(),
 									));
 								}
@@ -2082,6 +2084,9 @@ Claude commands (run inside agent):
   /done       end session, log work
   /log        save progress to task file
   /interview  detailed task planning
+  /worktree   move to isolated git worktree
+  /poll-pr    monitor PR until CI passes
+  /qa-swarm   QA test the swarm TUI
 
 tmux (when attached):
   Ctrl-b d  detach (return to swarm)
