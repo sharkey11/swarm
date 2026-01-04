@@ -40,6 +40,7 @@ const HOOK_INTERVIEW: &str = include_str!("../hooks/interview.md");
 const HOOK_LOG: &str = include_str!("../hooks/log.md");
 const HOOK_POLL_PR: &str = include_str!("../hooks/poll-pr.md");
 const HOOK_QA_SWARM: &str = include_str!("../hooks/qa-swarm.md");
+const HOOK_WORKTREE: &str = include_str!("../hooks/worktree.md");
 
 /// Install Claude hooks to ~/.claude/commands/
 fn install_hooks() -> Result<()> {
@@ -55,6 +56,7 @@ fn install_hooks() -> Result<()> {
 		("log.md", HOOK_LOG),
 		("poll-pr.md", HOOK_POLL_PR),
 		("qa-swarm.md", HOOK_QA_SWARM),
+		("worktree.md", HOOK_WORKTREE),
 	];
 
 	for (name, content) in hooks {
@@ -2221,7 +2223,7 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool) -> R
 		session_name.clone(),
 		cfg.general.default_agent.clone(),
 		repo,
-		true, // Always use worktrees for TUI tasks (isolated git environment)
+		false, // Worktrees disabled by default (slow due to git fetch). Use CLI --worktree flag when needed.
 		Some(prompt),
 		Some(task.path.to_string_lossy().into_owned()),
 		auto_accept,

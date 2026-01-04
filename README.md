@@ -49,7 +49,9 @@ swarm update
 - **Dashboard view** - See all your AI agents at a glance with live status
 - **Task tracking** - Associate agents with task files for context persistence
 - **Auto-updates** - Checks daily and updates automatically on startup
+- **Mode cycling** - Press Shift+Tab to cycle Claude between plan/standard/auto modes
 - **YOLO mode** - Auto-accept permissions for trusted tasks
+- **Allowed tools** - Configure safe commands to auto-accept in `[allowed_tools]` config
 - **Claude hooks** - Built-in slash commands (/done, /log, /interview)
 
 ## Key Bindings
