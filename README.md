@@ -1,6 +1,6 @@
 # swarm
 
-Terminal dashboard for managing multiple AI coding agents in parallel. See who needs attention. Never lose track.
+Command your agent fleet.
 
 ## Install
 
@@ -11,6 +11,23 @@ cargo install --git https://github.com/whopio/swarm
 After install, `swarm` is available globally (Cargo adds `~/.cargo/bin` to your PATH).
 
 **Requirements:** macOS, [tmux](https://github.com/tmux/tmux), [Claude Code](https://claude.ai/code)
+
+### Install tmux
+
+tmux is required for swarm to manage agent sessions.
+
+```bash
+# macOS
+brew install tmux
+
+# Ubuntu/Debian
+sudo apt install tmux
+
+# Fedora
+sudo dnf install tmux
+```
+
+After installing, restart your terminal or run `source ~/.zshrc` (or `~/.bashrc`).
 
 ## Quick Start
 
