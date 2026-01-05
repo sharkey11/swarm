@@ -72,7 +72,8 @@ swarm update
 - **Mode cycling** - Press Shift+Tab to cycle Claude between plan/standard/auto modes
 - **YOLO mode** - Auto-accept permissions for trusted tasks
 - **Allowed tools** - Configure safe commands to auto-accept in `[allowed_tools]` config
-- **Claude hooks** - Built-in slash commands (/done, /log, /interview)
+- **Daily logs** - Browse your daily log files with preview (press `l`)
+- **Claude hooks** - Built-in slash commands (/done, /log, /interview, /poll-pr, /worktree)
 
 ## Key Bindings
 
@@ -89,8 +90,17 @@ swarm update
 | **t** | Switch to tasks view |
 | **s** | Cycle status style |
 | **c** | Open config in Cursor |
+| **l** | Daily logs view |
 | **h** | Help |
 | **q** | Quit |
+
+### Daily Logs View
+
+| Key | Action |
+|-----|--------|
+| **↑/↓** | Navigate |
+| **o** | Open in editor |
+| **Esc** | Back to agents |
 
 ### Tasks View
 
@@ -103,6 +113,18 @@ swarm update
 | **o** | Open in editor |
 | **x** | Delete task |
 | **Esc** | Back to agents |
+
+## tmux Keybindings
+
+When attached to a session (press `a`), swarm uses custom tmux keybindings:
+
+| Key | Action |
+|-----|--------|
+| **Alt+d** | Detach (return to swarm) |
+| **Alt+↑/↓** | Scroll up/down |
+| **Mouse** | Scroll enabled |
+
+Config: `~/.swarm/tmux.conf`
 
 ## How It Works
 
@@ -159,6 +181,8 @@ Swarm includes Claude Code slash commands that work inside your agents:
 - **/done** - End session and log completed work
 - **/log** - Save progress to the linked task file
 - **/interview** - Detailed task planning before starting
+- **/poll-pr** - Monitor PR until CI passes
+- **/worktree** - Move to isolated git worktree
 
 Hooks are installed to `~/.claude/commands/` on first run.
 
