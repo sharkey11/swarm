@@ -271,18 +271,22 @@ fn start_session_with_options(
 	// Ensure server is running (handles stale sockets)
 	ensure_server()?;
 
+	// Escape single quotes for zsh -c '...' wrapper
+	// Replace ' with '\'' (end quote, escaped quote, start quote)
+	let escaped_command = command.replace('\'', "'\\''");
+
 	// Wrap command with proper PATH setup for tmux's non-login shell environment
 	// This ensures tools like claude (installed in ~/.claude/local) are available
 	let final_command = if use_mise {
 		format!(
 			"zsh -c 'export PATH=\"$HOME/.claude/local:$HOME/.local/bin:$PATH\"; mise trust 2>/dev/null; eval \"$(mise activate zsh 2>/dev/null)\"; exec {}'",
-			command
+			escaped_command
 		)
 	} else {
 		// Even without mise, we need to set up PATH for common tool locations
 		format!(
 			"zsh -c 'export PATH=\"$HOME/.claude/local:$HOME/.local/bin:$PATH\"; exec {}'",
-			command
+			escaped_command
 		)
 	};
 
