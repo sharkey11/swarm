@@ -72,7 +72,8 @@ swarm update
 - **Mode cycling** - Press Shift+Tab to cycle Claude between plan/standard/auto modes
 - **YOLO mode** - Auto-accept permissions for trusted tasks
 - **Allowed tools** - Configure safe commands to auto-accept in `[allowed_tools]` config
-- **Claude hooks** - Built-in slash commands (/done, /log, /interview)
+- **Daily logs** - Browse your daily log files with preview (press `l`)
+- **Claude hooks** - Built-in slash commands (/done, /log, /interview, /poll-pr, /worktree)
 
 ## Key Bindings
 
@@ -180,6 +181,8 @@ Swarm includes Claude Code slash commands that work inside your agents:
 - **/done** - End session and log completed work
 - **/log** - Save progress to the linked task file
 - **/interview** - Detailed task planning before starting
+- **/poll-pr** - Monitor PR until CI passes
+- **/worktree** - Move to isolated git worktree
 
 Hooks are installed to `~/.claude/commands/` on first run.
 
