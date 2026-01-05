@@ -476,14 +476,15 @@ fn handle_new(
 	}
 
 	// Build the command with optional initial prompt (passed as CLI arg, like whop.sh)
-	let initial_prompt = if let Some(task_path) = &task {
-		Some(format!(
-			"Starting task. Read {} for context. Summarize the task before acting.",
-			task_path
-		))
-	} else {
-		prompt.clone()
-	};
+	// Prefer explicit prompt if provided, otherwise build one from task path
+	let initial_prompt = prompt.clone().or_else(|| {
+		task.as_ref().map(|task_path| {
+			format!(
+				"Starting task. Read {} for context. Summarize the task before acting.",
+				task_path
+			)
+		})
+	});
 
 	// Build Claude flags:
 	// - YOLO mode: --dangerously-skip-permissions (bypasses everything)
@@ -1950,6 +1951,8 @@ Install these commands to ~/.claude/commands/?
 						{
 							// Cycle through status indicator styles
 							style_idx = (style_idx + 1) % styles.len();
+							cfg.general.status_style = styles[style_idx].to_string();
+							let _ = config::save_config(cfg); // Save preference
 							status_message = Some((
 								format!("Status style: {}", styles[style_idx]),
 								Instant::now(),
