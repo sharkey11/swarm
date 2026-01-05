@@ -41,21 +41,37 @@ pub fn ensure_pipe(session: &str, log_path: &Path) -> Result<()> {
 
 	let cmd = format!("cat >> {}", log_path.to_string_lossy());
 	let target = format!("{session}:0.0");
-	let status = Command::new("tmux")
-		.arg("pipe-pane")
-		.arg("-t")
-		.arg(&target)
-		.arg(cmd)
-		.status()
-		.with_context(|| "failed to set tmux pipe-pane")?;
 
-	if !status.success() {
-		return Err(anyhow::anyhow!(
-			"tmux pipe-pane failed for session {}",
-			session
-		));
+	// Retry logic - tmux server may need time to be ready after session creation
+	let mut last_error = None;
+	for attempt in 0..3 {
+		if attempt > 0 {
+			std::thread::sleep(Duration::from_millis(200));
+		}
+
+		let status = Command::new("tmux")
+			.arg("pipe-pane")
+			.arg("-t")
+			.arg(&target)
+			.arg(&cmd)
+			.status();
+
+		match status {
+			Ok(s) if s.success() => return Ok(()),
+			Ok(s) => {
+				last_error = Some(format!("exit code {}", s.code().unwrap_or(-1)));
+			}
+			Err(e) => {
+				last_error = Some(e.to_string());
+			}
+		}
 	}
-	Ok(())
+
+	Err(anyhow::anyhow!(
+		"tmux pipe-pane failed for session {} after 3 attempts: {}",
+		session,
+		last_error.unwrap_or_else(|| "unknown error".to_string())
+	))
 }
 
 pub fn capture_tail(session: &str, lines: usize) -> Result<Vec<String>> {

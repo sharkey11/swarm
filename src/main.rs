@@ -477,8 +477,8 @@ fn handle_new(
 		start_session(&session, &target_dir, &command)?;
 	}
 
-	// Small delay to let tmux session initialize before setting up pipe
-	std::thread::sleep(std::time::Duration::from_millis(200));
+	// Delay to let tmux session initialize before setting up pipe
+	std::thread::sleep(std::time::Duration::from_millis(500));
 
 	let log_path = Path::new(&cfg.general.logs_dir).join(format!("{session}.log"));
 	// Pipe setup is best-effort - session is already running
@@ -795,7 +795,7 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 	// "Name your work" prompt for new agents (n key)
 	let mut new_agent_mode = false;
 	let mut new_agent_buf = String::new();
-	let mut new_agent_due = String::new(); // empty = tomorrow
+	let mut new_agent_due = String::from("tomorrow"); // pre-filled, can be deleted
 	let mut new_agent_notify = String::new();
 	let mut new_agent_field = 0; // 0 = description, 1 = due, 2 = notify
 	let pipe_status: std::collections::HashMap<String, String> =
@@ -1165,11 +1165,7 @@ Did you run /done in Claude first?
 					if new_agent_field == 1 { "█" } else { "" },
 					if new_agent_field == 2 { "█" } else { "" },
 				];
-				let due_display = if new_agent_due.is_empty() {
-					"tomorrow"
-				} else {
-					&new_agent_due
-				};
+				let due_display = &new_agent_due;
 				let body = format!(
 					r#"What are you working on?
 > {}{}
@@ -1332,7 +1328,7 @@ Install these commands to ~/.claude/commands/?
 									} else {
 										Some(new_agent_notify.clone())
 									};
-									let due = if new_agent_due.trim().is_empty() {
+									let due = if new_agent_due.trim().is_empty() || new_agent_due.trim().to_lowercase() == "tomorrow" {
 										None // will default to tomorrow
 									} else {
 										Some(new_agent_due.clone())
@@ -1374,14 +1370,14 @@ Install these commands to ~/.claude/commands/?
 								new_agent_mode = false;
 								new_agent_buf.clear();
 								new_agent_notify.clear();
-								new_agent_due.clear();
+								new_agent_due = String::from("tomorrow");
 								new_agent_field = 0;
 							}
 							KeyCode::Esc => {
 								new_agent_mode = false;
 								new_agent_buf.clear();
 								new_agent_notify.clear();
-								new_agent_due.clear();
+								new_agent_due = String::from("tomorrow");
 								new_agent_field = 0;
 							}
 							_ => {}
@@ -1413,7 +1409,7 @@ Install these commands to ~/.claude/commands/?
 								new_agent_mode = false;
 								new_agent_buf.clear();
 								new_agent_notify.clear();
-								new_agent_due.clear();
+								new_agent_due = String::from("tomorrow");
 								new_agent_field = 0;
 							} else if send_input_mode {
 								send_input_mode = false;
@@ -1567,7 +1563,7 @@ Install these commands to ~/.claude/commands/?
 							new_agent_mode = true;
 							new_agent_buf.clear();
 							new_agent_notify.clear();
-							new_agent_due.clear();
+							new_agent_due = String::from("tomorrow");
 							new_agent_field = 0;
 						}
 						KeyCode::Char('Y') if showing_tasks => {

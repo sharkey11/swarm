@@ -12,6 +12,23 @@ After install, `swarm` is available globally (Cargo adds `~/.cargo/bin` to your 
 
 **Requirements:** macOS, [tmux](https://github.com/tmux/tmux), [Claude Code](https://claude.ai/code)
 
+### Install tmux
+
+tmux is required for swarm to manage agent sessions.
+
+```bash
+# macOS
+brew install tmux
+
+# Ubuntu/Debian
+sudo apt install tmux
+
+# Fedora
+sudo dnf install tmux
+```
+
+After installing, restart your terminal or run `source ~/.zshrc` (or `~/.bashrc`).
+
 ## Quick Start
 
 ```bash
