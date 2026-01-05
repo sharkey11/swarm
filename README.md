@@ -1,6 +1,6 @@
 # swarm
 
-Terminal dashboard for managing multiple AI coding agents in parallel. See who needs attention. Never lose track.
+Command your agent fleet.
 
 ## Install
 
