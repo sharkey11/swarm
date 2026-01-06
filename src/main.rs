@@ -44,15 +44,19 @@ const TMUX_CONF: &str = include_str!("../assets/tmux.conf");
 const HOOK_QA_SWARM: &str = include_str!("../hooks/qa-swarm.md");
 const HOOK_WORKSPACE: &str = include_str!("../hooks/workspace.md");
 
-/// Install Claude hooks to ~/.claude/commands/
+// PreToolUse bash hooks - run before Claude executes tools
+const PRETOOLUSE_PROTECT_MAIN: &str = include_str!("../pretooluse-hooks/protect-main-branch.sh");
+
+/// Install Claude hooks to ~/.claude/commands/ and ~/.claude/hooks/
 fn install_hooks() -> Result<()> {
-	let commands_dir = dirs::home_dir()
-		.ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
-		.join(".claude")
-		.join("commands");
+	let home = dirs::home_dir()
+		.ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+
+	// Install slash command hooks to ~/.claude/commands/
+	let commands_dir = home.join(".claude").join("commands");
 	fs::create_dir_all(&commands_dir)?;
 
-	let hooks = [
+	let command_hooks = [
 		("done.md", HOOK_DONE),
 		("interview.md", HOOK_INTERVIEW),
 		("log.md", HOOK_LOG),
@@ -61,9 +65,30 @@ fn install_hooks() -> Result<()> {
 		("workspace.md", HOOK_WORKSPACE),
 	];
 
-	for (name, content) in hooks {
+	for (name, content) in command_hooks {
 		let path = commands_dir.join(name);
 		fs::write(&path, content)?;
+	}
+
+	// Install PreToolUse bash hooks to ~/.claude/hooks/
+	let hooks_dir = home.join(".claude").join("hooks");
+	fs::create_dir_all(&hooks_dir)?;
+
+	let pretooluse_hooks = [
+		("protect-main-branch.sh", PRETOOLUSE_PROTECT_MAIN),
+	];
+
+	for (name, content) in pretooluse_hooks {
+		let path = hooks_dir.join(name);
+		fs::write(&path, content)?;
+		// Make executable on Unix
+		#[cfg(unix)]
+		{
+			use std::os::unix::fs::PermissionsExt;
+			let mut perms = fs::metadata(&path)?.permissions();
+			perms.set_mode(0o755);
+			fs::set_permissions(&path, perms)?;
+		}
 	}
 
 	Ok(())
