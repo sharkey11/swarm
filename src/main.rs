@@ -2612,9 +2612,27 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, work
 	let base_name = slugify(task.title.clone());
 	let session_name = unique_session_name(&base_name)?;
 	let repo = std::env::current_dir()?.to_string_lossy().into_owned();
+
+	// Build prompt with additional directories hint if configured
+	let additional_dirs_note = if !cfg.allowed_tools.additional_directories.is_empty() {
+		let dirs: Vec<String> = cfg
+			.allowed_tools
+			.additional_directories
+			.iter()
+			.map(|d| config::expand_path(d))
+			.collect();
+		format!(
+			"\n\nNote: The user's projects are likely in these directories: {}",
+			dirs.join(", ")
+		)
+	} else {
+		String::new()
+	};
+
 	let prompt = format!(
-		"Starting task. Read {} for context (include any Process Log). Summarize the task file before acting.",
-		task.path.display()
+		"Starting task. Read {} for context (include any Process Log). Summarize the task file before acting.{}",
+		task.path.display(),
+		additional_dirs_note
 	);
 	// Note: handle_new will append jj workspace note if workspace=true
 	handle_new(
