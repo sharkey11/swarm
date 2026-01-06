@@ -586,9 +586,11 @@ fn handle_new(
 
 	// Write .claude/settings.local.json with allowed tools before starting Claude
 	if agent == "claude" && !auto_accept {
+		// Expand tasks_dir path (resolves ~ to home directory)
+		let tasks_dir = config::expand_path(&cfg.general.tasks_dir);
 		let mut allowed: Vec<String> = vec![
 			"Read(~/.swarm/tasks/**)".to_string(),
-			format!("Read(/{}/**)", cfg.general.tasks_dir),
+			format!("Read({}/**)", tasks_dir),
 		];
 		allowed.extend(cfg.allowed_tools.tools.iter().cloned());
 

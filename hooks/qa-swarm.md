@@ -203,7 +203,7 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 7. [ ] Modal closes, normal TUI shows
 8. [ ] Run swarm again - no modal (hooks_installed = true now)
 
-### Flow 9: Mode Cycling (Shift+Tab)
+### Flow 13: Mode Cycling (Shift+Tab)
 **Scenario:** Cycle Claude Code between plan/standard/auto-accept modes
 
 1. [ ] Select an agent
@@ -213,13 +213,75 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 
 **Note:** This sends the actual Shift+Tab keystroke to Claude Code inside the tmux session.
 
-### Flow 10: Open Config (c key)
+### Flow 14: Open Config (c key)
 **Scenario:** Quickly edit config from within swarm
 
 1. [ ] Press `c` from agents view
 2. [ ] Cursor opens `~/.swarm/config.toml`
 3. [ ] Status message shows "Opened ~/.swarm/config.toml in Cursor"
 4. [ ] Can edit allowed_tools, notifications, etc.
+
+### Flow 15: Additional Directories (Permissions)
+**Scenario:** Claude can access directories outside workspace
+
+1. [ ] Add to `~/.swarm/config.toml`:
+   ```toml
+   [allowed_tools]
+   additional_directories = ["~/Documents/other-project"]
+   ```
+2. [ ] Start a new task from swarm
+3. [ ] Check `.claude/settings.local.json` in workspace:
+   - [ ] Has `additionalDirectories` array with expanded paths
+   - [ ] Paths don't have double slashes (`//`)
+4. [ ] Initial prompt mentions: "Projects are likely in these directories: ..."
+5. [ ] Claude can run bash commands in those directories without prompts
+
+### Flow 16: Session Sorting by Creation Time
+**Scenario:** Newest sessions appear at bottom of list
+
+1. [ ] Note current session order
+2. [ ] Start a new task
+3. [ ] New session appears at the **bottom** of the list
+4. [ ] Session is auto-selected after creation
+5. [ ] Verify with: `tmux list-sessions -F "#{session_name}|#{session_created}"`
+
+### Flow 17: jj Workspace Hidden When Disabled
+**Scenario:** Users who don't use jj don't see the option
+
+1. [ ] Set `workspace_default = false` in `~/.swarm/config.toml`
+2. [ ] Press `n` to create new agent
+3. [ ] Modal shows only 3 fields (no workspace toggle)
+4. [ ] Tab cycles through: description → notify → due date → description
+5. [ ] Agent starts without jj workspace
+
+**Verify:** Set `workspace_default = true` and the workspace toggle reappears.
+
+### Flow 18: Long Task Name Truncation
+**Scenario:** Very long task names don't cause errors
+
+1. [ ] Create a task with a very long title (100+ chars):
+   ```
+   "This is a very long task name that exceeds one hundred characters to test the truncation logic in swarm"
+   ```
+2. [ ] Task starts successfully (no "file name too long" error)
+3. [ ] Session name is truncated to ~100 chars
+4. [ ] Workspace directory name is also truncated
+
+### Flow 19: Notify Field Default
+**Scenario:** "no one" is pre-filled for convenience
+
+1. [ ] Press `n` to create new agent
+2. [ ] "Who should be notified" field shows "no one" pre-filled
+3. [ ] Can delete and type custom value
+4. [ ] If left as "no one", task file has no `## When done` section
+5. [ ] Can also clear completely and leave blank
+
+### Flow 20: zsh Requirement Check
+**Scenario:** Clear error if zsh not installed
+
+1. [ ] (Hard to test on macOS where zsh is default)
+2. [ ] Code checks for zsh before starting session
+3. [ ] Error message: "zsh is required but not found. Install with: brew install zsh"
 
 ---
 
