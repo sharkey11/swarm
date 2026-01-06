@@ -421,7 +421,14 @@ fn handle_new(
 	auto_accept: bool,
 	announce: bool,
 ) -> Result<()> {
-	let clean_name = name.trim_start_matches(SWARM_PREFIX).to_string();
+	// Truncate name to avoid "file name too long" errors (macOS limit is 255 bytes)
+	// Keep it under 100 chars to leave room for session prefix and other path components
+	let raw_name = name.trim_start_matches(SWARM_PREFIX);
+	let clean_name = if raw_name.len() > 100 {
+		raw_name.chars().take(100).collect::<String>()
+	} else {
+		raw_name.to_string()
+	};
 	let session = format!("{SWARM_PREFIX}{clean_name}");
 	let repo_path = resolve_repo_path(&repo)?;
 	let (target_dir, workspace_path) = if workspace {
@@ -577,10 +584,38 @@ fn handle_new(
 		})
 	});
 
-	// Build Claude command:
-	// - YOLO mode: --dangerously-skip-permissions (bypasses everything)
-	// - Normal mode: --permission-mode acceptEdits + --allowedTools for safe commands
-	// NOTE: Prompt must come BEFORE --allowedTools because it's a variadic flag that consumes all following args
+	// Write .claude/settings.local.json with allowed tools before starting Claude
+	if agent == "claude" && !auto_accept {
+		// Expand tasks_dir path (resolves ~ to home directory)
+		let tasks_dir = config::expand_path(&cfg.general.tasks_dir);
+		let mut allowed: Vec<String> = vec![
+			"Read(~/.swarm/tasks/**)".to_string(),
+			format!("Read({}/**)", tasks_dir),
+		];
+		allowed.extend(cfg.allowed_tools.tools.iter().cloned());
+
+		// Expand additional directories (resolve ~ to home)
+		let additional_dirs: Vec<String> = cfg
+			.allowed_tools
+			.additional_directories
+			.iter()
+			.map(|d| config::expand_path(d))
+			.collect();
+
+		let settings_json = serde_json::json!({
+			"permissions": {
+				"allow": allowed,
+				"additionalDirectories": additional_dirs
+			}
+		});
+
+		let claude_dir = target_dir.join(".claude");
+		fs::create_dir_all(&claude_dir)?;
+		let settings_path = claude_dir.join("settings.local.json");
+		fs::write(&settings_path, serde_json::to_string_pretty(&settings_json)?)?;
+	}
+
+	// Build Claude command
 	let command = if agent == "claude" {
 		let mut parts = vec!["claude".to_string()];
 		if auto_accept {
@@ -589,16 +624,9 @@ fn handle_new(
 			parts.push("--permission-mode".to_string());
 			parts.push("acceptEdits".to_string());
 		}
-		// Add prompt BEFORE --allowedTools (variadic flag that consumes all following args)
+		// Add prompt
 		if let Some(p) = &initial_prompt {
 			parts.push(format!("\"{}\"", p.replace('"', "\\\"")));
-		}
-		// Add allowedTools LAST since it's variadic
-		if !auto_accept {
-			for tool in &cfg.allowed_tools.tools {
-				parts.push("--allowedTools".to_string());
-				parts.push(format!("\"{}\"", tool));
-			}
 		}
 		parts.join(" ")
 	} else {
@@ -1016,7 +1044,7 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 	let mut new_agent_mode = false;
 	let mut new_agent_buf = String::new();
 	let mut new_agent_due = String::from("tomorrow"); // pre-filled, can be deleted
-	let mut new_agent_notify = String::new();
+	let mut new_agent_notify = String::from("no one"); // pre-filled, can be deleted
 	let mut new_agent_workspace = cfg.general.workspace_default; // jj workspace toggle
 	let mut new_agent_field = 0; // 0 = description, 1 = notify, 2 = due, 3 = workspace
 	let pipe_status: std::collections::HashMap<String, String> =
@@ -1457,8 +1485,14 @@ Did you run /done in Claude first?
 					if new_agent_field == 3 { "█" } else { "" },
 				];
 				let due_display = &new_agent_due;
-				let workspace_indicator = if new_agent_workspace { "●" } else { "○" };
-				let workspace_highlight = if new_agent_field == 3 { ">" } else { " " };
+				// Only show workspace option if jj is enabled in config
+				let workspace_line = if cfg.general.workspace_default {
+					let workspace_indicator = if new_agent_workspace { "●" } else { "○" };
+					let workspace_highlight = if new_agent_field == 3 { ">" } else { " " };
+					format!("\n{workspace_highlight}[Workspace: {workspace_indicator}]{}  (Space to toggle)", cursors[3])
+				} else {
+					String::new()
+				};
 				let body = format!(
 					r#"What are you working on?
 > {}{}
@@ -1467,15 +1501,13 @@ Who should be notified when done?
 > {}{}
 
 Due date (MM-DD or leave blank for tomorrow)
-> {}{}
-
-{workspace_highlight}[Workspace: {workspace_indicator}]{}  (Space to toggle)
+> {}{}{}
 
 Tab to switch fields, Enter to start, Esc to cancel"#,
 					new_agent_buf, cursors[0],
 					new_agent_notify, cursors[1],
 					due_display, cursors[2],
-					cursors[3],
+					workspace_line,
 				);
 				let overlay = Paragraph::new(body)
 					.block(
@@ -1622,15 +1654,18 @@ Install these commands to ~/.claude/commands/?
 								}
 							}
 							KeyCode::Tab => {
-								new_agent_field = (new_agent_field + 1) % 4;
+								// Only 3 fields if workspace is hidden, 4 if shown
+								let max_field = if cfg.general.workspace_default { 3 } else { 2 };
+								new_agent_field = (new_agent_field + 1) % (max_field + 1);
 							}
 							KeyCode::BackTab => {
-								new_agent_field = if new_agent_field == 0 { 3 } else { new_agent_field - 1 };
+								let max_field = if cfg.general.workspace_default { 3 } else { 2 };
+								new_agent_field = if new_agent_field == 0 { max_field } else { new_agent_field - 1 };
 							}
 							KeyCode::Enter => {
 								if !new_agent_buf.is_empty() {
 									// Create task file and start agent
-									let notify = if new_agent_notify.trim().is_empty() {
+									let notify = if new_agent_notify.trim().is_empty() || new_agent_notify.trim().to_lowercase() == "no one" {
 										None
 									} else {
 										Some(new_agent_notify.clone())
@@ -1661,7 +1696,12 @@ Install these commands to ~/.claude/commands/?
 											std::thread::sleep(std::time::Duration::from_millis(300));
 											if let Ok(updated) = collect_sessions(cfg) {
 												sessions = updated;
-												selected = sessions.len().saturating_sub(1);
+												// Find the newly created session by name
+												let full_session_name = format!("{SWARM_PREFIX}{session_name}");
+												selected = sessions
+													.iter()
+													.position(|s| s.session_name == full_session_name)
+													.unwrap_or(sessions.len().saturating_sub(1));
 												list_state.select(
 													sessions.get(selected).map(|_| selected),
 												);
@@ -1679,7 +1719,7 @@ Install these commands to ~/.claude/commands/?
 								}
 								new_agent_mode = false;
 								new_agent_buf.clear();
-								new_agent_notify.clear();
+								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
 								new_agent_workspace = cfg.general.workspace_default;
 								new_agent_field = 0;
@@ -1687,7 +1727,7 @@ Install these commands to ~/.claude/commands/?
 							KeyCode::Esc => {
 								new_agent_mode = false;
 								new_agent_buf.clear();
-								new_agent_notify.clear();
+								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
 								new_agent_workspace = cfg.general.workspace_default;
 								new_agent_field = 0;
@@ -1729,7 +1769,7 @@ Install these commands to ~/.claude/commands/?
 							} else if new_agent_mode {
 								new_agent_mode = false;
 								new_agent_buf.clear();
-								new_agent_notify.clear();
+								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
 								new_agent_workspace = cfg.general.workspace_default;
 								new_agent_field = 0;
@@ -1913,7 +1953,7 @@ Install these commands to ~/.claude/commands/?
 							// Same "name your work" flow as agents view
 							new_agent_mode = true;
 							new_agent_buf.clear();
-							new_agent_notify.clear();
+							new_agent_notify = String::from("no one");
 							new_agent_due = String::from("tomorrow");
 							new_agent_field = 0;
 						}
@@ -2013,7 +2053,12 @@ Install these commands to ~/.claude/commands/?
 													));
 													showing_tasks = false;
 													sessions = collect_sessions(cfg)?;
-													selected = sessions.len().saturating_sub(1);
+													// Find the newly created session by name
+													let full_session_name = format!("{SWARM_PREFIX}{session_name}");
+													selected = sessions
+														.iter()
+														.position(|s| s.session_name == full_session_name)
+														.unwrap_or(sessions.len().saturating_sub(1));
 													list_state.select(
 														sessions.get(selected).map(|_| selected),
 													);
@@ -2584,11 +2629,36 @@ fn start_from_task_with_workspace(cfg: &Config, task: &TaskEntry, workspace: boo
 
 fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, workspace: bool) -> Result<String> {
 	let base_name = slugify(task.title.clone());
-	let session_name = unique_session_name(&base_name)?;
+	// Truncate base name to avoid "file name too long" errors (macOS limit is 255 bytes)
+	// Keep it under 100 chars to leave room for session prefix and other path components
+	let truncated_name = if base_name.len() > 100 {
+		base_name.chars().take(100).collect::<String>()
+	} else {
+		base_name
+	};
+	let session_name = unique_session_name(&truncated_name)?;
 	let repo = std::env::current_dir()?.to_string_lossy().into_owned();
+
+	// Build prompt with additional directories hint if configured
+	let additional_dirs_note = if !cfg.allowed_tools.additional_directories.is_empty() {
+		let dirs: Vec<String> = cfg
+			.allowed_tools
+			.additional_directories
+			.iter()
+			.map(|d| config::expand_path(d))
+			.collect();
+		format!(
+			"\n\nNote: Projects are likely in these directories: {}",
+			dirs.join(", ")
+		)
+	} else {
+		String::new()
+	};
+
 	let prompt = format!(
-		"Starting task. Read {} for context (include any Process Log). Summarize the task file before acting.",
-		task.path.display()
+		"Starting task. Read {} for context (include any Process Log). Summarize the task file before acting.{}",
+		task.path.display(),
+		additional_dirs_note
 	);
 	// Note: handle_new will append jj workspace note if workspace=true
 	handle_new(

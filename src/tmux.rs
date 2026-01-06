@@ -125,10 +125,11 @@ pub fn list_sessions() -> Result<Vec<String>> {
 	// Ensure server is running (handles stale sockets)
 	ensure_server()?;
 
+	// Get session names with creation timestamps for sorting
 	let output = tmux_cmd()
 		.arg("list-sessions")
 		.arg("-F")
-		.arg("#{session_name}")
+		.arg("#{session_name}|#{session_created}")
 		.output();
 
 	let output = match output {
@@ -147,12 +148,23 @@ pub fn list_sessions() -> Result<Vec<String>> {
 	}
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
-	let sessions = stdout
+	// Parse and sort by creation time (ascending - oldest first, newest last)
+	let mut sessions: Vec<(String, u64)> = stdout
 		.lines()
 		.filter(|line| line.starts_with(SWARM_PREFIX))
-		.map(|s| s.trim().to_string())
+		.filter_map(|line| {
+			let parts: Vec<&str> = line.split('|').collect();
+			if parts.len() == 2 {
+				let name = parts[0].trim().to_string();
+				let created = parts[1].trim().parse::<u64>().unwrap_or(0);
+				Some((name, created))
+			} else {
+				None
+			}
+		})
 		.collect();
-	Ok(sessions)
+	sessions.sort_by_key(|(_, created)| *created);
+	Ok(sessions.into_iter().map(|(name, _)| name).collect())
 }
 
 pub fn ensure_pipe(session: &str, log_path: &Path) -> Result<()> {
@@ -268,20 +280,28 @@ fn start_session_with_options(
 	command: &str,
 	use_mise: bool,
 ) -> Result<()> {
+	// Check that zsh is available (required for PATH setup and mise activation)
+	if Command::new("which").arg("zsh").output().map(|o| !o.status.success()).unwrap_or(true) {
+		return Err(anyhow::anyhow!(
+			"zsh is required but not found. Install with: brew install zsh (macOS) or apt install zsh (Linux)"
+		));
+	}
+
 	// Ensure server is running (handles stale sockets)
 	ensure_server()?;
 
-	// Wrap command with proper PATH setup for tmux's non-login shell environment
-	// This ensures tools like claude (installed in ~/.claude/local) are available
+	// Build the shell script to run via zsh -c
+	// This sets up PATH for tools like claude (installed in ~/.claude/local)
+	// The command is passed as a separate arg to avoid shell quoting issues
 	let final_command = if use_mise {
 		format!(
-			"zsh -c 'export PATH=\"$HOME/.claude/local:$HOME/.local/bin:$PATH\"; mise trust 2>/dev/null; eval \"$(mise activate zsh 2>/dev/null)\"; exec {}'",
+			"export PATH=\"$HOME/.claude/local:$HOME/.local/bin:$PATH\"; mise trust 2>/dev/null; eval \"$(mise activate zsh 2>/dev/null)\"; exec {}",
 			command
 		)
 	} else {
 		// Even without mise, we need to set up PATH for common tool locations
 		format!(
-			"zsh -c 'export PATH=\"$HOME/.claude/local:$HOME/.local/bin:$PATH\"; exec {}'",
+			"export PATH=\"$HOME/.claude/local:$HOME/.local/bin:$PATH\"; exec {}",
 			command
 		)
 	};
@@ -297,6 +317,8 @@ fn start_session_with_options(
 		}
 	}
 
+	// Use -- to separate tmux options from the shell command
+	// Pass shell and args separately to avoid quote escaping issues
 	let status = cmd
 		.arg("new-session")
 		.arg("-d")
@@ -304,6 +326,9 @@ fn start_session_with_options(
 		.arg(session)
 		.arg("-c")
 		.arg(dir)
+		.arg("--")
+		.arg("zsh")
+		.arg("-c")
 		.arg(&final_command)
 		.status()
 		.with_context(|| format!("failed to start tmux session {} (using {})", session, tmux_bin))?;

@@ -11,7 +11,7 @@ const DEFAULT_CONFIG: &str = r#"
 [general]
 default_agent = "claude"
 workspace_dir = "~/workspaces"
-workspace_default = true
+workspace_default = false
 poll_interval_ms = 1000
 logs_dir = "~/.swarm/logs"
 tasks_dir = "~/.swarm/tasks"
@@ -169,6 +169,11 @@ tools = [
   "Bash(sw_vers:*)",
   "Bash(system_profiler:*)",
 ]
+# Directories outside workspace that Claude can access (for bash commands)
+# Example: "~/Documents/whop-monorepo" lets Claude run commands in that directory
+additional_directories = [
+  # "~/Documents/my-project",
+]
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,7 +209,7 @@ pub struct General {
 }
 
 fn default_workspace_default() -> bool {
-	true
+	false
 }
 
 fn default_status_style() -> String {
@@ -239,6 +244,9 @@ pub struct Keybindings {
 pub struct AllowedTools {
 	#[serde(default = "default_allowed_tools")]
 	pub tools: Vec<String>,
+	/// Additional directories Claude can access outside the workspace
+	#[serde(default)]
+	pub additional_directories: Vec<String>,
 }
 
 fn default_allowed_tools() -> Vec<String> {

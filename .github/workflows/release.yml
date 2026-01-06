@@ -183,6 +183,54 @@ jobs:
           echo "Downloaded artifacts:"
           find artifacts -type f -ls
 
+      - name: Generate release notes
+        id: release-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.get-version.outputs.version }}"
+          echo "Generating release notes for v$VERSION"
+
+          # Get the most recent merged PR (excluding version bump PRs)
+          LAST_PR=$(gh pr list --state merged --limit 10 --json number,title,body \
+            --jq '.[] | select(.title | test("^Release v") | not) | .number' | head -1)
+
+          if [ -n "$LAST_PR" ]; then
+            echo "Found PR #$LAST_PR"
+            # Get PR body as release notes
+            PR_BODY=$(gh pr view "$LAST_PR" --json body --jq '.body')
+
+            # Write to file for multi-line handling
+            echo "$PR_BODY" > release_notes.md
+
+            # Add installation instructions at the end
+            cat >> release_notes.md << 'INSTALL'
+
+---
+
+## Installation
+
+```bash
+# macOS (Apple Silicon)
+curl -fsSL https://github.com/whopio/swarm/releases/latest/download/swarm-aarch64-apple-darwin -o swarm
+chmod +x swarm && sudo mv swarm /usr/local/bin/
+
+# macOS (Intel)
+curl -fsSL https://github.com/whopio/swarm/releases/latest/download/swarm-x86_64-apple-darwin -o swarm
+chmod +x swarm && sudo mv swarm /usr/local/bin/
+
+# Or update existing installation
+swarm update
+```
+INSTALL
+          else
+            echo "No recent PR found, using auto-generated notes"
+            echo "See commits for changes." > release_notes.md
+          fi
+
+          echo "Release notes:"
+          cat release_notes.md
+
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -190,10 +238,10 @@ jobs:
           VERSION="${{ steps.get-version.outputs.version }}"
           echo "Creating release v$VERSION"
 
-          # Create the release
+          # Create the release with PR body as notes
           gh release create "v$VERSION" \
             --title "v$VERSION" \
-            --generate-notes \
+            --notes-file release_notes.md \
             artifacts/swarm-aarch64-apple-darwin/swarm-aarch64-apple-darwin \
             artifacts/swarm-x86_64-apple-darwin/swarm-x86_64-apple-darwin \
             artifacts/swarm-x86_64-unknown-linux-gnu/swarm-x86_64-unknown-linux-gnu
