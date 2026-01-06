@@ -58,8 +58,9 @@ get_branch_for_command() {
   fi
 }
 
-# Check if command is git commit
-if [[ "$command" =~ git\ commit ]] || [[ "$command" =~ git\ -C\ .+\ commit ]]; then
+# Check if command is git commit (anchored to start of command)
+# Must start with "git commit" or "git -C <path> commit" to avoid matching text in heredocs/args
+if [[ "$command" =~ ^git\ commit ]] || [[ "$command" =~ ^git\ -C\ [^[:space:]]+\ commit ]]; then
   current_branch=$(get_branch_for_command "$command")
   if [[ "$current_branch" == "main" || "$current_branch" == "master" ]]; then
     echo "BLOCKED: Cannot commit directly to $current_branch branch" >&2
@@ -69,7 +70,7 @@ if [[ "$command" =~ git\ commit ]] || [[ "$command" =~ git\ -C\ .+\ commit ]]; t
 fi
 
 # Check if command is jj git push - handle jj repos specially
-if [[ "$command" =~ jj\ git\ push ]]; then
+if [[ "$command" =~ ^jj\ git\ push ]]; then
   bookmark=$(get_jj_push_bookmark "$command")
   if [[ "$bookmark" == "main" || "$bookmark" == "master" ]]; then
     echo "BLOCKED: Cannot push main/master bookmark" >&2
@@ -80,7 +81,8 @@ if [[ "$command" =~ jj\ git\ push ]]; then
 fi
 
 # Check if command is git push - block ANY push that targets main/master
-if [[ "$command" =~ git\ push ]] || [[ "$command" =~ git\ -C\ .+\ push ]]; then
+# Anchored to start to avoid matching text in heredocs/args
+if [[ "$command" =~ ^git\ push ]] || [[ "$command" =~ ^git\ -C\ [^[:space:]]+\ push ]]; then
   # In jj colocated repos, git HEAD points to main but jj working copy may be different
   # Allow pushes that explicitly target a non-main ref (e.g., HEAD:refs/heads/feature)
   if is_jj_repo; then
