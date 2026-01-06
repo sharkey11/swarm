@@ -1483,8 +1483,14 @@ Did you run /done in Claude first?
 					if new_agent_field == 3 { "█" } else { "" },
 				];
 				let due_display = &new_agent_due;
-				let workspace_indicator = if new_agent_workspace { "●" } else { "○" };
-				let workspace_highlight = if new_agent_field == 3 { ">" } else { " " };
+				// Only show workspace option if jj is enabled in config
+				let workspace_line = if cfg.general.workspace_default {
+					let workspace_indicator = if new_agent_workspace { "●" } else { "○" };
+					let workspace_highlight = if new_agent_field == 3 { ">" } else { " " };
+					format!("\n{workspace_highlight}[Workspace: {workspace_indicator}]{}  (Space to toggle)", cursors[3])
+				} else {
+					String::new()
+				};
 				let body = format!(
 					r#"What are you working on?
 > {}{}
@@ -1493,15 +1499,13 @@ Who should be notified when done?
 > {}{}
 
 Due date (MM-DD or leave blank for tomorrow)
-> {}{}
-
-{workspace_highlight}[Workspace: {workspace_indicator}]{}  (Space to toggle)
+> {}{}{}
 
 Tab to switch fields, Enter to start, Esc to cancel"#,
 					new_agent_buf, cursors[0],
 					new_agent_notify, cursors[1],
 					due_display, cursors[2],
-					cursors[3],
+					workspace_line,
 				);
 				let overlay = Paragraph::new(body)
 					.block(
@@ -1648,10 +1652,13 @@ Install these commands to ~/.claude/commands/?
 								}
 							}
 							KeyCode::Tab => {
-								new_agent_field = (new_agent_field + 1) % 4;
+								// Only 3 fields if workspace is hidden, 4 if shown
+								let max_field = if cfg.general.workspace_default { 3 } else { 2 };
+								new_agent_field = (new_agent_field + 1) % (max_field + 1);
 							}
 							KeyCode::BackTab => {
-								new_agent_field = if new_agent_field == 0 { 3 } else { new_agent_field - 1 };
+								let max_field = if cfg.general.workspace_default { 3 } else { 2 };
+								new_agent_field = if new_agent_field == 0 { max_field } else { new_agent_field - 1 };
 							}
 							KeyCode::Enter => {
 								if !new_agent_buf.is_empty() {
@@ -1687,7 +1694,12 @@ Install these commands to ~/.claude/commands/?
 											std::thread::sleep(std::time::Duration::from_millis(300));
 											if let Ok(updated) = collect_sessions(cfg) {
 												sessions = updated;
-												selected = sessions.len().saturating_sub(1);
+												// Find the newly created session by name
+												let full_session_name = format!("{SWARM_PREFIX}{session_name}");
+												selected = sessions
+													.iter()
+													.position(|s| s.session_name == full_session_name)
+													.unwrap_or(sessions.len().saturating_sub(1));
 												list_state.select(
 													sessions.get(selected).map(|_| selected),
 												);
@@ -2039,7 +2051,12 @@ Install these commands to ~/.claude/commands/?
 													));
 													showing_tasks = false;
 													sessions = collect_sessions(cfg)?;
-													selected = sessions.len().saturating_sub(1);
+													// Find the newly created session by name
+													let full_session_name = format!("{SWARM_PREFIX}{session_name}");
+													selected = sessions
+														.iter()
+														.position(|s| s.session_name == full_session_name)
+														.unwrap_or(sessions.len().saturating_sub(1));
 													list_state.select(
 														sessions.get(selected).map(|_| selected),
 													);

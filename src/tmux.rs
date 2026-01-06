@@ -125,10 +125,11 @@ pub fn list_sessions() -> Result<Vec<String>> {
 	// Ensure server is running (handles stale sockets)
 	ensure_server()?;
 
+	// Get session names with creation timestamps for sorting
 	let output = tmux_cmd()
 		.arg("list-sessions")
 		.arg("-F")
-		.arg("#{session_name}")
+		.arg("#{session_name}|#{session_created}")
 		.output();
 
 	let output = match output {
@@ -147,12 +148,23 @@ pub fn list_sessions() -> Result<Vec<String>> {
 	}
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
-	let sessions = stdout
+	// Parse and sort by creation time (ascending - oldest first, newest last)
+	let mut sessions: Vec<(String, u64)> = stdout
 		.lines()
 		.filter(|line| line.starts_with(SWARM_PREFIX))
-		.map(|s| s.trim().to_string())
+		.filter_map(|line| {
+			let parts: Vec<&str> = line.split('|').collect();
+			if parts.len() == 2 {
+				let name = parts[0].trim().to_string();
+				let created = parts[1].trim().parse::<u64>().unwrap_or(0);
+				Some((name, created))
+			} else {
+				None
+			}
+		})
 		.collect();
-	Ok(sessions)
+	sessions.sort_by_key(|(_, created)| *created);
+	Ok(sessions.into_iter().map(|(name, _)| name).collect())
 }
 
 pub fn ensure_pipe(session: &str, log_path: &Path) -> Result<()> {
