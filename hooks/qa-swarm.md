@@ -283,6 +283,32 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 2. [ ] Code checks for zsh before starting session
 3. [ ] Error message: "zsh is required but not found. Install with: brew install zsh"
 
+### Flow 21: jj Workspace Uses Correct Repo
+**Scenario:** Workspace points to whop-monorepo, not swarm's current dir
+
+1. [ ] Run swarm from `~/Documents/swarm` (NOT whop-monorepo)
+2. [ ] Ensure `additional_directories` includes `~/Documents/whop-monorepo` in config
+3. [ ] Start a task with workspace mode enabled
+4. [ ] Check workspace's `.jj/repo` file:
+   ```bash
+   cat ~/worktrees/<task-name>/.jj/repo
+   ```
+5. [ ] Should point to `~/Documents/whop-monorepo/.jj/repo` (NOT `~/Documents/swarm/.jj/repo`)
+6. [ ] Run `jj log` in workspace - shows whop-monorepo history, not swarm history
+
+### Flow 22: jj Log in Initial Prompt
+**Scenario:** Claude sees repo state immediately without running commands
+
+1. [ ] Start a task with workspace mode enabled
+2. [ ] Check the initial prompt sent to Claude:
+   ```bash
+   tmux capture-pane -p -S -500 -t swarm-<task-name>
+   ```
+3. [ ] Prompt should include:
+   - [ ] `jj status` output
+   - [ ] `jj log` output (last 50 commits)
+   - [ ] Note about using `/workspace` skill
+
 ---
 
 ## Test Checklist

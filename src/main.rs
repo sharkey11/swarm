@@ -2582,6 +2582,47 @@ fn find_jj_repo_from_workspace(workspace_path: &Path) -> Option<PathBuf> {
 	None
 }
 
+/// Find a jj repo for workspace creation from additional_directories config
+/// Priority:
+/// 1. First directory containing "whop-monorepo" (most common case)
+/// 2. First directory with a .jj folder
+/// 3. Current directory if it has .jj
+fn find_jj_repo_for_workspace(cfg: &Config) -> Option<String> {
+	let dirs: Vec<String> = cfg
+		.allowed_tools
+		.additional_directories
+		.iter()
+		.map(|d| config::expand_path(d))
+		.collect();
+
+	// Priority 1: Look for whop-monorepo (Jack's most common repo)
+	for dir in &dirs {
+		if dir.contains("whop-monorepo") {
+			let path = PathBuf::from(dir);
+			if path.join(".jj").exists() {
+				return Some(dir.clone());
+			}
+		}
+	}
+
+	// Priority 2: First additional_directory with .jj
+	for dir in &dirs {
+		let path = PathBuf::from(dir);
+		if path.join(".jj").exists() {
+			return Some(dir.clone());
+		}
+	}
+
+	// Priority 3: Current directory if it has .jj
+	if let Ok(cwd) = std::env::current_dir() {
+		if cwd.join(".jj").exists() {
+			return Some(cwd.to_string_lossy().into_owned());
+		}
+	}
+
+	None
+}
+
 #[allow(dead_code)] // May be useful for future daily logging features
 fn append_daily(session: &AgentSession, cfg: &Config) -> Result<()> {
 	let dir = PathBuf::from(&cfg.general.daily_dir);
@@ -2637,7 +2678,16 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, work
 		base_name
 	};
 	let session_name = unique_session_name(&truncated_name)?;
-	let repo = std::env::current_dir()?.to_string_lossy().into_owned();
+
+	// When workspace mode is enabled, find a jj repo from additional_directories
+	// instead of using current dir (which might not be a jj repo)
+	// Priority: whop-monorepo > first additional_directory with .jj > current dir
+	let repo = if workspace {
+		find_jj_repo_for_workspace(cfg)
+			.unwrap_or_else(|| std::env::current_dir().unwrap().to_string_lossy().into_owned())
+	} else {
+		std::env::current_dir()?.to_string_lossy().into_owned()
+	};
 
 	// Build prompt with additional directories hint if configured
 	let additional_dirs_note = if !cfg.allowed_tools.additional_directories.is_empty() {
@@ -2655,10 +2705,42 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, work
 		String::new()
 	};
 
+	// Add workspace info to prompt for better DX
+	// Include jj log output so Claude knows the repo state
+	let jj_log = if workspace {
+		// Get jj log to show in prompt
+		if let Ok(output) = Command::new("jj")
+			.arg("log")
+			.arg("--limit")
+			.arg("50")
+			.current_dir(&repo)
+			.output()
+		{
+			if output.status.success() {
+				let log_output = String::from_utf8_lossy(&output.stdout);
+				// Also get jj status
+				let status_output = Command::new("jj")
+					.arg("status")
+					.current_dir(&repo)
+					.output()
+					.map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+					.unwrap_or_default();
+				format!("\n\nNote: You are in a jj workspace. Use `/workspace` skill for jj workspace guide and commands\n\n{}\n{}", status_output, log_output)
+			} else {
+				"\n\nNote: You are in a jj workspace. Use `jj` commands instead of `git` (e.g., `jj status`, `jj log`, `jj new`, `jj describe -m \"msg\"`).".to_string()
+			}
+		} else {
+			"\n\nNote: You are in a jj workspace. Use `jj` commands instead of `git` (e.g., `jj status`, `jj log`, `jj new`, `jj describe -m \"msg\"`).".to_string()
+		}
+	} else {
+		String::new()
+	};
+
 	let prompt = format!(
-		"Starting task. Read {} for context (include any Process Log). Summarize the task file before acting.{}",
+		"Starting task. Read {} for context (include any Process Log). Summarize the task file before acting.{}{}",
 		task.path.display(),
-		additional_dirs_note
+		additional_dirs_note,
+		jj_log
 	);
 	// Note: handle_new will append jj workspace note if workspace=true
 	handle_new(
