@@ -113,17 +113,83 @@ pub fn tmux_conf_path() -> Option<PathBuf> {
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const GITHUB_REPO: &str = "whopio/swarm";
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone)]
 struct GitHubRelease {
 	tag_name: String,
 	body: Option<String>,
 	assets: Vec<GitHubAsset>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone)]
 struct GitHubAsset {
 	name: String,
 	browser_download_url: String,
+}
+
+/// Parse version string into (major, minor, patch) tuple for comparison
+fn parse_version(v: &str) -> Option<(u32, u32, u32)> {
+	let v = v.trim_start_matches('v');
+	let parts: Vec<&str> = v.split('.').collect();
+	if parts.len() >= 3 {
+		Some((
+			parts[0].parse().ok()?,
+			parts[1].parse().ok()?,
+			parts[2].parse().ok()?,
+		))
+	} else {
+		None
+	}
+}
+
+/// Compare two versions: returns true if a > b
+fn version_greater(a: &str, b: &str) -> bool {
+	match (parse_version(a), parse_version(b)) {
+		(Some((a1, a2, a3)), Some((b1, b2, b3))) => (a1, a2, a3) > (b1, b2, b3),
+		_ => false,
+	}
+}
+
+/// Get cumulative release notes for all versions between current and latest
+fn get_cumulative_release_notes(current: &str, releases: &[GitHubRelease]) -> Option<String> {
+	// Filter to releases newer than current, sort by version (oldest first)
+	let mut newer: Vec<_> = releases
+		.iter()
+		.filter(|r| version_greater(&r.tag_name, current))
+		.collect();
+
+	// Sort by version ascending (oldest first so we show changes in order)
+	newer.sort_by(|a, b| {
+		let va = parse_version(&a.tag_name).unwrap_or((0, 0, 0));
+		let vb = parse_version(&b.tag_name).unwrap_or((0, 0, 0));
+		va.cmp(&vb)
+	});
+
+	if newer.is_empty() {
+		return None;
+	}
+
+	// If only one version, just return its notes
+	if newer.len() == 1 {
+		return newer[0].body.clone();
+	}
+
+	// Combine notes from all versions
+	let combined: Vec<String> = newer
+		.iter()
+		.filter_map(|r| {
+			r.body.as_ref().map(|b| {
+				// Strip installation instructions (after "---") to avoid duplication
+				let notes = b.split("\n---").next().unwrap_or(b).trim();
+				format!("### {}\n{}", r.tag_name, notes)
+			})
+		})
+		.collect();
+
+	if combined.is_empty() {
+		None
+	} else {
+		Some(combined.join("\n\n"))
+	}
 }
 
 /// Check for updates and return the latest version if newer
@@ -134,19 +200,28 @@ fn check_for_update() -> Result<Option<(String, String, Option<String>)>> {
 		.timeout(Duration::from_secs(10))
 		.build()?;
 
-	let url = format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO);
+	// Fetch recent releases (not just latest) for cumulative changelog
+	let url = format!(
+		"https://api.github.com/repos/{}/releases?per_page=10",
+		GITHUB_REPO
+	);
 	let response = client.get(&url).send()?;
 
 	if !response.status().is_success() {
 		return Ok(None);
 	}
 
-	let release: GitHubRelease = response.json()?;
-	let latest = release.tag_name.trim_start_matches('v');
+	let releases: Vec<GitHubRelease> = response.json()?;
+	if releases.is_empty() {
+		return Ok(None);
+	}
+
+	let latest = &releases[0];
+	let latest_version = latest.tag_name.trim_start_matches('v');
 	let current = CURRENT_VERSION;
 
-	// Simple version comparison
-	if latest != current {
+	// Check if we need to update
+	if version_greater(latest_version, current) {
 		// Find the right asset for this platform
 		let target = if cfg!(target_os = "macos") {
 			if cfg!(target_arch = "aarch64") {
@@ -160,12 +235,14 @@ fn check_for_update() -> Result<Option<(String, String, Option<String>)>> {
 			return Ok(None);
 		};
 
-		for asset in &release.assets {
+		for asset in &latest.assets {
 			if asset.name.contains(target) {
+				// Get cumulative release notes (all versions between current and latest)
+				let cumulative_notes = get_cumulative_release_notes(current, &releases);
 				return Ok(Some((
-					latest.to_string(),
+					latest_version.to_string(),
 					asset.browser_download_url.clone(),
-					release.body,
+					cumulative_notes,
 				)));
 			}
 		}
