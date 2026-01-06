@@ -11,7 +11,7 @@ const DEFAULT_CONFIG: &str = r#"
 [general]
 default_agent = "claude"
 workspace_dir = "~/workspaces"
-workspace_default = true
+workspace_default = false
 poll_interval_ms = 1000
 logs_dir = "~/.swarm/logs"
 tasks_dir = "~/.swarm/tasks"
@@ -204,7 +204,7 @@ pub struct General {
 }
 
 fn default_workspace_default() -> bool {
-	true
+	false
 }
 
 fn default_status_style() -> String {

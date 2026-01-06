@@ -421,7 +421,14 @@ fn handle_new(
 	auto_accept: bool,
 	announce: bool,
 ) -> Result<()> {
-	let clean_name = name.trim_start_matches(SWARM_PREFIX).to_string();
+	// Truncate name to avoid "file name too long" errors (macOS limit is 255 bytes)
+	// Keep it under 100 chars to leave room for session prefix and other path components
+	let raw_name = name.trim_start_matches(SWARM_PREFIX);
+	let clean_name = if raw_name.len() > 100 {
+		raw_name.chars().take(100).collect::<String>()
+	} else {
+		raw_name.to_string()
+	};
 	let session = format!("{SWARM_PREFIX}{clean_name}");
 	let repo_path = resolve_repo_path(&repo)?;
 	let (target_dir, workspace_path) = if workspace {
@@ -594,11 +601,16 @@ fn handle_new(
 			parts.push(format!("\"{}\"", p.replace('"', "\\\"")));
 		}
 		// Add allowedTools LAST since it's variadic
-		if !auto_accept {
-			for tool in &cfg.allowed_tools.tools {
-				parts.push("--allowedTools".to_string());
-				parts.push(format!("\"{}\"", tool));
-			}
+		// Always allow reading from tasks directory (swarm-specific)
+		// Double quotes protect () and * from shell expansion and work inside zsh -c '...'
+		parts.push("--allowedTools".to_string());
+		parts.push("\"Read(~/.swarm/tasks/**)\"".to_string());
+		parts.push("--allowedTools".to_string());
+		parts.push(format!("\"Read(/{}/**)\"", cfg.general.tasks_dir));
+		// Add user's allowed tools from config
+		for tool in &cfg.allowed_tools.tools {
+			parts.push("--allowedTools".to_string());
+			parts.push(format!("\"{}\"", tool));
 		}
 		parts.join(" ")
 	} else {
@@ -1016,7 +1028,7 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 	let mut new_agent_mode = false;
 	let mut new_agent_buf = String::new();
 	let mut new_agent_due = String::from("tomorrow"); // pre-filled, can be deleted
-	let mut new_agent_notify = String::new();
+	let mut new_agent_notify = String::from("no one"); // pre-filled, can be deleted
 	let mut new_agent_workspace = cfg.general.workspace_default; // jj workspace toggle
 	let mut new_agent_field = 0; // 0 = description, 1 = notify, 2 = due, 3 = workspace
 	let pipe_status: std::collections::HashMap<String, String> =
@@ -1630,7 +1642,7 @@ Install these commands to ~/.claude/commands/?
 							KeyCode::Enter => {
 								if !new_agent_buf.is_empty() {
 									// Create task file and start agent
-									let notify = if new_agent_notify.trim().is_empty() {
+									let notify = if new_agent_notify.trim().is_empty() || new_agent_notify.trim().to_lowercase() == "no one" {
 										None
 									} else {
 										Some(new_agent_notify.clone())
@@ -1679,7 +1691,7 @@ Install these commands to ~/.claude/commands/?
 								}
 								new_agent_mode = false;
 								new_agent_buf.clear();
-								new_agent_notify.clear();
+								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
 								new_agent_workspace = cfg.general.workspace_default;
 								new_agent_field = 0;
@@ -1687,7 +1699,7 @@ Install these commands to ~/.claude/commands/?
 							KeyCode::Esc => {
 								new_agent_mode = false;
 								new_agent_buf.clear();
-								new_agent_notify.clear();
+								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
 								new_agent_workspace = cfg.general.workspace_default;
 								new_agent_field = 0;
@@ -1729,7 +1741,7 @@ Install these commands to ~/.claude/commands/?
 							} else if new_agent_mode {
 								new_agent_mode = false;
 								new_agent_buf.clear();
-								new_agent_notify.clear();
+								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
 								new_agent_workspace = cfg.general.workspace_default;
 								new_agent_field = 0;
@@ -1913,7 +1925,7 @@ Install these commands to ~/.claude/commands/?
 							// Same "name your work" flow as agents view
 							new_agent_mode = true;
 							new_agent_buf.clear();
-							new_agent_notify.clear();
+							new_agent_notify = String::from("no one");
 							new_agent_due = String::from("tomorrow");
 							new_agent_field = 0;
 						}
