@@ -3032,3 +3032,4 @@ fn snapshot_session(session: &AgentSession) -> Result<String> {
 	fs::write(&path, output.stdout)?;
 	Ok(path.to_string_lossy().to_string())
 }
+

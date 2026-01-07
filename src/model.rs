@@ -46,3 +46,4 @@ pub struct DailyEntry {
 	pub path: PathBuf,
 	pub preview: String, // First non-empty line for list display
 }
+

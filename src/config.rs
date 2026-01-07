@@ -586,3 +586,4 @@ fn migrate_config(config_path: &Path) -> Result<()> {
 
 	Ok(())
 }
+

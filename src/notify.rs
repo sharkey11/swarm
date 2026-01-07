@@ -43,3 +43,4 @@ pub fn notify_error(agent_name: &str, message: &str, sound: &str) {
 		Some(sound),
 	);
 }
+

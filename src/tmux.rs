@@ -429,3 +429,4 @@ pub fn session_path(session: &str) -> Result<Option<String>> {
 		Ok(Some(stdout))
 	}
 }
+

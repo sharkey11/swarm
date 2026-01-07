@@ -77,3 +77,4 @@ pub fn detect_status(
 
 	AgentStatus::Unknown
 }
+
