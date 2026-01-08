@@ -20,25 +20,6 @@ if [[ "$command" =~ pr-dm-notifications-test ]]; then
   exit 0
 fi
 
-# Check if we're in a jj repo (colocated)
-is_jj_repo() {
-  [[ -d ".jj" ]] || [[ -d "$(git rev-parse --show-toplevel 2>/dev/null)/.jj" ]]
-}
-
-# For jj repos: extract the bookmark from jj git push command
-# jj git push -b sharkey11/feature -> returns "sharkey11/feature"
-get_jj_push_bookmark() {
-  local cmd="$1"
-  # Match -b or --bookmark followed by the bookmark name
-  if [[ "$cmd" =~ jj\ git\ push.*-b[[:space:]]+([^[:space:]]+) ]]; then
-    echo "${BASH_REMATCH[1]}"
-  elif [[ "$cmd" =~ jj\ git\ push.*--bookmark[[:space:]]+([^[:space:]]+) ]]; then
-    echo "${BASH_REMATCH[1]}"
-  else
-    echo ""
-  fi
-}
-
 # Helper function to get branch, handling cd commands
 get_branch_for_command() {
   local cmd="$1"
@@ -69,41 +50,13 @@ if [[ "$command" =~ ^git\ commit ]] || [[ "$command" =~ ^git\ -C\ [^[:space:]]+\
   fi
 fi
 
-# Check if command is jj git push - handle jj repos specially
-if [[ "$command" =~ ^jj\ git\ push ]]; then
-  bookmark=$(get_jj_push_bookmark "$command")
-  if [[ "$bookmark" == "main" || "$bookmark" == "master" ]]; then
-    echo "BLOCKED: Cannot push main/master bookmark" >&2
-    exit 2
-  fi
-  # jj git push with a non-main bookmark is safe
-  exit 0
-fi
-
 # Check if command is git push - block ANY push that targets main/master
 # Anchored to start to avoid matching text in heredocs/args
 if [[ "$command" =~ ^git\ push ]] || [[ "$command" =~ ^git\ -C\ [^[:space:]]+\ push ]]; then
-  # In jj colocated repos, git HEAD points to main but jj working copy may be different
-  # Allow pushes that explicitly target a non-main ref (e.g., HEAD:refs/heads/feature)
-  if is_jj_repo; then
-    # Allow: git push origin HEAD:refs/heads/sharkey11/feature
-    if [[ "$command" =~ HEAD:refs/heads/([^[:space:]]+) ]]; then
-      target_branch="${BASH_REMATCH[1]}"
-      if [[ "$target_branch" != "main" && "$target_branch" != "master" ]]; then
-        exit 0
-      fi
-    fi
-  fi
-
-  # Block if pushing while on main (non-jj repos or implicit push)
+  # Block if pushing while on main
   current_branch=$(get_branch_for_command "$command")
   if [[ "$current_branch" == "main" || "$current_branch" == "master" ]]; then
-    # In jj repos, suggest using jj git push instead
-    if is_jj_repo; then
-      echo "BLOCKED: In jj repo, use 'jj git push --bookmark <name>' instead" >&2
-    else
-      echo "BLOCKED: Cannot push from $current_branch branch" >&2
-    fi
+    echo "BLOCKED: Cannot push from $current_branch branch" >&2
     exit 2
   fi
 

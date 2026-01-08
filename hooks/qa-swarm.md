@@ -143,53 +143,53 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 4. [ ] Session starts with `--dangerously-skip-permissions`
 5. [ ] YOLO session shows: ⚠️ in agent list, red border on preview, warning banner
 
-### Flow 8: jj Workspace Creation
-**Scenario:** Start new agent with jj workspace isolation
+### Flow 8: Git Worktree Creation via /worktree
+**Scenario:** Claude asks about worktree, user confirms, Claude creates it
 
-1. [ ] Ensure repo has `.jj` (run `jj git init --colocate` if not)
-2. [ ] Press `n` from agents view
-3. [ ] Type description: "Test workspace feature"
-4. [ ] Tab to workspace field: `[Workspace: ●]` (should be ON by default)
-5. [ ] Press `Space` to toggle OFF, then ON again
-6. [ ] Press `Enter` → agent starts
-7. [ ] Agent shows `[jj]` badge in list (magenta color)
-8. [ ] Workspace created at `~/workspaces/<task-name>`
+1. [ ] Press `n` from agents view
+2. [ ] Type description: "Test worktree feature"
+3. [ ] Press `Enter` → agent starts
+4. [ ] Claude's initial prompt tells it to ask about worktree for code tasks
+5. [ ] Claude asks: "Do you want me to create a git worktree for isolation?"
+6. [ ] Reply "yes"
+7. [ ] Claude calls `/worktree` skill
+8. [ ] Agent shows `[wt]` badge in list (cyan color)
+9. [ ] Worktree created at `~/worktrees/<task-name>`
 
 **Verify:**
-- [ ] Workspace directory exists with `.jj` inside
-- [ ] Agent is running in workspace (check tmux pane path)
-- [ ] Initial prompt mentions "jj workspace" context
+- [ ] Worktree directory exists
+- [ ] Agent is running in worktree (check tmux pane path)
+- [ ] Branch created from `origin/main`
 
-### Flow 9: jj Workspace PR Flow
-**Scenario:** Claude in workspace creates a PR
+### Flow 9: Git Worktree PR Flow
+**Scenario:** Claude in worktree creates a PR
 
-1. [ ] In a jj workspace session, Claude makes code changes
-2. [ ] Claude runs: `jj describe -m "feat: my changes"` (no git add needed)
-3. [ ] Claude runs: `jj rebase -r @ -d main` (skip empty parent)
-4. [ ] Claude runs: `jj bookmark create sharkey11/feature-name`
-5. [ ] Claude runs: `jj git push --bookmark sharkey11/feature-name --allow-new`
-6. [ ] Claude runs: `gh pr create --repo OWNER/REPO --head sharkey11/feature-name --base main`
+1. [ ] In a worktree session, Claude makes code changes
+2. [ ] Claude runs: `git add -A`
+3. [ ] Claude runs: `git commit -m "feat: my changes"`
+4. [ ] Claude runs: `git push -u origin <branch-name>`
+5. [ ] Claude runs: `gh pr create --title "..." --body "..."`
 
-**Note:** Claude should reference `/workspace` hook for guidance.
+**Note:** Claude should reference `/worktree` hook for guidance.
 
-### Flow 10: Workspace Cleanup
-**Scenario:** Workspace auto-cleanup on agent done
+### Flow 10: Worktree Kept on Done
+**Scenario:** Worktree persists after agent done (for resuming later)
 
-1. [ ] Select agent with `[jj]` badge
+1. [ ] Select agent with `[wt]` badge
 2. [ ] Press `d` to mark done
 3. [ ] Confirm the done prompt
-4. [ ] Workspace directory at `~/workspaces/<name>` should be deleted
-5. [ ] `jj workspace list` in parent repo shouldn't show the workspace
+4. [ ] Worktree directory at `~/worktrees/<name>` should still exist
+5. [ ] Branch is still available for resuming work
 
-### Flow 11: Workspace Error Handling
-**Scenario:** Try workspace in git-only repo
+### Flow 11: Research Task (No Worktree)
+**Scenario:** Claude skips worktree prompt for research-only tasks
 
-1. [ ] Navigate to a repo without `.jj`
-2. [ ] Press `n` to create new agent
-3. [ ] Keep workspace toggle ON
-4. [ ] Press `Enter`
-5. [ ] Should show error: "jj not initialized in <path>. Run: jj git init --colocate"
-6. [ ] Agent should NOT be created
+1. [ ] Press `n` from agents view
+2. [ ] Type description: "Research how X works in the codebase"
+3. [ ] Press `Enter` → agent starts
+4. [ ] Claude recognizes this is research (not code changes)
+5. [ ] Claude does NOT ask about worktree
+6. [ ] Agent runs in parent repo directory without `[wt]` badge
 
 ### Flow 12: First-Run Onboarding
 **Scenario:** Test the hooks install prompt
@@ -245,18 +245,7 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 4. [ ] Session is auto-selected after creation
 5. [ ] Verify with: `tmux list-sessions -F "#{session_name}|#{session_created}"`
 
-### Flow 17: jj Workspace Hidden When Disabled
-**Scenario:** Users who don't use jj don't see the option
-
-1. [ ] Set `workspace_default = false` in `~/.swarm/config.toml`
-2. [ ] Press `n` to create new agent
-3. [ ] Modal shows only 3 fields (no workspace toggle)
-4. [ ] Tab cycles through: description → notify → due date → description
-5. [ ] Agent starts without jj workspace
-
-**Verify:** Set `workspace_default = true` and the workspace toggle reappears.
-
-### Flow 18: Long Task Name Truncation
+### Flow 17: Long Task Name Truncation
 **Scenario:** Very long task names don't cause errors
 
 1. [ ] Create a task with a very long title (100+ chars):
