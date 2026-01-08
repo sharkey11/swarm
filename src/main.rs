@@ -549,7 +549,7 @@ fn handle_new(
 
 	// Build the command with optional initial prompt
 	// Include worktree hint for implementation tasks
-	let worktree_note = "\n\nIMPORTANT: If this task involves writing code (not just research), ask the user: \"Do you want me to create a git worktree for isolation?\" If yes, call `/worktree` to set up an isolated workspace.";
+	let worktree_note = "\n\nIMPORTANT: If this task involves writing code (not just research), ask the user: \"Do you want me to create a git worktree for isolation?\" If yes, call \\`/worktree\\` to set up an isolated workspace.";
 	let initial_prompt = prompt.clone().map(|p| {
 		format!("{}{}", p, worktree_note)
 	}).or_else(|| {
