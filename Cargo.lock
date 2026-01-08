@@ -2022,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "swarm"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "ansi-to-tui",
  "anyhow",
