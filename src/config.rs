@@ -10,8 +10,7 @@ use std::path::{Path, PathBuf};
 const DEFAULT_CONFIG: &str = r#"
 [general]
 default_agent = "claude"
-workspace_dir = "~/workspaces"
-workspace_default = false
+worktree_dir = "~/worktrees"
 poll_interval_ms = 1000
 logs_dir = "~/.swarm/logs"
 tasks_dir = "~/.swarm/tasks"
@@ -71,19 +70,6 @@ tools = [
   "Bash(git merge-base:*)",
   "Bash(git cherry:*)",
   "Bash(git count-objects:*)",
-  # jj (Jujutsu) - read-only
-  "Bash(jj status:*)",
-  "Bash(jj log:*)",
-  "Bash(jj diff:*)",
-  "Bash(jj show:*)",
-  "Bash(jj config get:*)",
-  "Bash(jj config list:*)",
-  "Bash(jj workspace list:*)",
-  "Bash(jj bookmark list:*)",
-  "Bash(jj bookmark create:*)",
-  "Bash(jj git push:*)",
-  "Bash(jj new:*)",
-  "Bash(jj describe:*)",
   # GitHub CLI (read-only)
   "Bash(gh pr view:*)",
   "Bash(gh pr list:*)",
@@ -201,12 +187,9 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct General {
 	pub default_agent: String,
-	/// Directory for jj workspaces (renamed from worktree_dir)
-	#[serde(alias = "worktree_dir")]
-	pub workspace_dir: String,
-	/// Whether to create jj workspace by default for new agents
-	#[serde(default = "default_workspace_default")]
-	pub workspace_default: bool,
+	/// Directory for git worktrees
+	#[serde(alias = "workspace_dir")]
+	pub worktree_dir: String,
 	pub poll_interval_ms: u64,
 	pub logs_dir: String,
 	#[serde(default = "default_daily_dir")]
@@ -219,10 +202,6 @@ pub struct General {
 	pub status_style: String, // "emoji", "unicode", "text"
 	#[serde(default)]
 	pub hooks_installed: bool, // Track if we've installed Claude hooks
-}
-
-fn default_workspace_default() -> bool {
-	false
 }
 
 fn default_status_style() -> String {
@@ -319,19 +298,6 @@ fn default_allowed_tools() -> Vec<String> {
 		"Bash(git merge-base:*)".into(),
 		"Bash(git cherry:*)".into(),
 		"Bash(git count-objects:*)".into(),
-		// jj (Jujutsu) - read-only
-		"Bash(jj status:*)".into(),
-		"Bash(jj log:*)".into(),
-		"Bash(jj diff:*)".into(),
-		"Bash(jj show:*)".into(),
-		"Bash(jj config get:*)".into(),
-		"Bash(jj config list:*)".into(),
-		"Bash(jj workspace list:*)".into(),
-		"Bash(jj bookmark list:*)".into(),
-		"Bash(jj bookmark create:*)".into(),
-		"Bash(jj git push:*)".into(),
-		"Bash(jj new:*)".into(),
-		"Bash(jj describe:*)".into(),
 		// GitHub CLI (read-only)
 		"Bash(gh pr view:*)".into(),
 		"Bash(gh pr list:*)".into(),
@@ -471,7 +437,7 @@ pub fn load_or_init() -> Result<Config> {
 	let content = fs::read_to_string(&config_path)?;
 	let mut cfg: Config = toml::from_str(&content)?;
 	cfg.general.logs_dir = expand_path(&cfg.general.logs_dir);
-	cfg.general.workspace_dir = expand_path(&cfg.general.workspace_dir);
+	cfg.general.worktree_dir = expand_path(&cfg.general.worktree_dir);
 	cfg.general.daily_dir = expand_path(&cfg.general.daily_dir);
 	cfg.general.tasks_dir = expand_path(&cfg.general.tasks_dir);
 	for path in [
@@ -538,12 +504,7 @@ fn migrate_config(config_path: &Path) -> Result<()> {
 	// Define migrations: (key_to_check, section, line_to_add)
 	// Each migration checks if a key exists and adds it if missing
 	let migrations: Vec<(&str, &str, &str)> = vec![
-		// v0.1.17: workspace_default for auto jj workspaces
-		(
-			"workspace_default",
-			"[general]",
-			"# Auto-create jj workspace for tasks in jj repos (set to true to enable)\nworkspace_default = false",
-		),
+		// Add new migrations here as needed
 	];
 
 	let mut modified_content = content.clone();

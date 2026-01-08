@@ -28,7 +28,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::stdout;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant, SystemTime};
 use tmux::{
 	SWARM_PREFIX, capture_tail_ansi, ensure_pipe, find_tmux, kill_session, list_sessions, pane_last_used,
@@ -42,7 +42,7 @@ const HOOK_LOG: &str = include_str!("../hooks/log.md");
 const HOOK_POLL_PR: &str = include_str!("../hooks/poll-pr.md");
 const TMUX_CONF: &str = include_str!("../assets/tmux.conf");
 const HOOK_QA_SWARM: &str = include_str!("../hooks/qa-swarm.md");
-const HOOK_WORKSPACE: &str = include_str!("../hooks/workspace.md");
+const HOOK_WORKTREE: &str = include_str!("../hooks/worktree.md");
 
 // PreToolUse bash hooks - run before Claude executes tools
 const PRETOOLUSE_PROTECT_MAIN: &str = include_str!("../pretooluse-hooks/protect-main-branch.sh");
@@ -62,7 +62,7 @@ fn install_hooks() -> Result<()> {
 		("log.md", HOOK_LOG),
 		("poll-pr.md", HOOK_POLL_PR),
 		("qa-swarm.md", HOOK_QA_SWARM),
-		("workspace.md", HOOK_WORKSPACE),
+		("worktree.md", HOOK_WORKTREE),
 	];
 
 	for (name, content) in command_hooks {
@@ -397,9 +397,6 @@ enum Commands {
 		/// Repo path to use
 		#[arg(long, default_value = ".")]
 		repo: String,
-		/// Create a jj workspace under workspace_dir (requires .jj in repo)
-		#[arg(long, default_value_t = false)]
-		workspace: bool,
 		/// Initial prompt to send after launch
 		#[arg(long)]
 		prompt: Option<String>,
@@ -431,11 +428,10 @@ async fn main() -> Result<()> {
 			name,
 			agent,
 			repo,
-			workspace,
 			prompt,
 			task,
 			auto_accept,
-		}) => handle_new(&cfg, name, agent, repo, workspace, prompt, task, auto_accept, true),
+		}) => handle_new(&cfg, name, agent, repo, prompt, task, auto_accept, true),
 		None => run_tui(&mut cfg),
 	}
 }
@@ -459,7 +455,7 @@ fn collect_sessions(cfg: &Config) -> Result<Vec<AgentSession>> {
 
 		let preview = tail_lines(&log_path, 12).unwrap_or_default();
 		let is_yolo = is_yolo_session(&session);
-		let workspace_path = get_workspace_path(&session);
+		let worktree_path = get_worktree_path(&session);
 		out.push(AgentSession {
 			name: session.trim_start_matches(SWARM_PREFIX).to_string(),
 			session_name: session.clone(),
@@ -470,7 +466,7 @@ fn collect_sessions(cfg: &Config) -> Result<Vec<AgentSession>> {
 			preview,
 			task,
 			is_yolo,
-			workspace_path,
+			worktree_path,
 		});
 	}
 	Ok(out)
@@ -501,25 +497,8 @@ fn cleanup_orphans(cfg: &Config, active_sessions: &[String]) {
 			for entry in entries.flatten() {
 				let name = entry.file_name().to_string_lossy().to_string();
 				if !active.contains(&name) {
-					// Clean up jj workspace before removing session metadata
-					let workspace_marker = entry.path().join("workspace");
-					if let Ok(ws_path_str) = fs::read_to_string(&workspace_marker) {
-						let workspace_path = PathBuf::from(ws_path_str.trim());
-						if workspace_path.exists() {
-							// Find parent jj repo and forget workspace
-							if let Some(parent_repo) = find_jj_repo_from_workspace(&workspace_path) {
-								let _ = Command::new("jj")
-									.arg("workspace")
-									.arg("forget")
-									.arg(&workspace_path)
-									.current_dir(&parent_repo)
-									.stderr(Stdio::null())
-									.status();
-							}
-							// Remove workspace directory
-							let _ = fs::remove_dir_all(&workspace_path);
-						}
-					}
+					// Note: We keep worktrees when sessions are cleaned up
+					// They can be manually cleaned with `git worktree remove`
 					let _ = fs::remove_dir_all(entry.path());
 				}
 			}
@@ -536,7 +515,6 @@ fn handle_new(
 	name: String,
 	agent: String,
 	repo: String,
-	workspace: bool,
 	prompt: Option<String>,
 	task: Option<String>,
 	auto_accept: bool,
@@ -551,141 +529,7 @@ fn handle_new(
 		raw_name.to_string()
 	};
 	let session = format!("{SWARM_PREFIX}{clean_name}");
-	let repo_path = resolve_repo_path(&repo)?;
-
-	// Check if this is a jj repo - if so, ALWAYS use a workspace for isolation
-	// This prevents conflicts when multiple agents work on the same repo
-	let is_jj_repo = repo_path.join(".jj").exists();
-	let use_workspace = workspace || is_jj_repo;
-
-	let (target_dir, workspace_path) = if use_workspace {
-		// For jj repos, workspaces are mandatory to prevent conflicts between agents
-		let jj_dir = repo_path.join(".jj");
-		if !jj_dir.exists() {
-			return Err(anyhow::anyhow!(
-				"jj not initialized in {}. Run: jj git init --colocate",
-				repo_path.display()
-			));
-		}
-
-		let base = PathBuf::from(&cfg.general.workspace_dir);
-		fs::create_dir_all(&base)?;
-		let path = base.join(&clean_name);
-
-		// Check if workspace already exists at this path
-		if path.exists() {
-			// Check if it's a valid jj workspace
-			if path.join(".jj").exists() {
-				// Check for uncommitted changes before resetting
-				let status_output = Command::new("jj")
-					.arg("status")
-					.current_dir(&path)
-					.output()
-					.context("failed to check workspace status")?;
-				let has_changes = status_output.status.success()
-					&& !String::from_utf8_lossy(&status_output.stdout)
-						.contains("The working copy has no changes");
-
-				if has_changes {
-					// Save existing changes before starting fresh
-					let _ = Command::new("jj")
-						.arg("describe")
-						.arg("-m")
-						.arg("WIP: auto-saved changes from previous session")
-						.current_dir(&path)
-						.stderr(Stdio::null())
-						.status();
-				}
-
-				// Now safe to create new commit from main
-				let status = Command::new("jj")
-					.arg("new")
-					.arg("main")
-					.current_dir(&path)
-					.stderr(Stdio::null())
-					.status()
-					.context("failed to reset workspace to main")?;
-				if !status.success() {
-					return Err(anyhow::anyhow!(
-						"jj new main failed in existing workspace"
-					));
-				}
-			} else {
-				// Invalid/stale directory - remove and recreate
-				fs::remove_dir_all(&path)?;
-				// Forget the workspace in case jj still knows about it
-				let _ = Command::new("jj")
-					.arg("workspace")
-					.arg("forget")
-					.arg(&clean_name)
-					.current_dir(&repo_path)
-					.stderr(Stdio::null())
-					.status();
-				// Create fresh workspace
-				let status = Command::new("jj")
-					.arg("workspace")
-					.arg("add")
-					.arg(&path)
-					.current_dir(&repo_path)
-					.stderr(Stdio::null())
-					.status()
-					.context("failed to add jj workspace")?;
-				if !status.success() {
-					return Err(anyhow::anyhow!("jj workspace add failed"));
-				}
-				let status = Command::new("jj")
-					.arg("new")
-					.arg("main")
-					.current_dir(&path)
-					.stderr(Stdio::null())
-					.status()
-					.context("failed to start from main")?;
-				if !status.success() {
-					return Err(anyhow::anyhow!("jj new main failed"));
-				}
-			}
-		} else {
-			// Forget any stale workspace registration
-			let _ = Command::new("jj")
-				.arg("workspace")
-				.arg("forget")
-				.arg(&clean_name)
-				.current_dir(&repo_path)
-				.stderr(Stdio::null())
-				.status();
-			// Create new jj workspace (instant - no fetch needed!)
-			let status = Command::new("jj")
-				.arg("workspace")
-				.arg("add")
-				.arg(&path)
-				.current_dir(&repo_path)
-				.stderr(Stdio::null())
-				.status()
-				.context("failed to add jj workspace")?;
-			if !status.success() {
-				return Err(anyhow::anyhow!(
-					"jj workspace add failed"
-				));
-			}
-
-			// Start from main in the new workspace
-			let status = Command::new("jj")
-				.arg("new")
-				.arg("main")
-				.current_dir(&path)
-				.stderr(Stdio::null())
-				.status()
-				.context("failed to start from main")?;
-			if !status.success() {
-				return Err(anyhow::anyhow!(
-					"jj new main failed in new workspace"
-				));
-			}
-		}
-		(path.clone(), Some(path))
-	} else {
-		(repo_path, None)
-	};
+	let target_dir = resolve_repo_path(&repo)?;
 
 	if let Some(task_path) = &task {
 		let marker = session_task_path(&session)?;
@@ -703,61 +547,18 @@ fn handle_new(
 		fs::write(&yolo_marker, "1")?;
 	}
 
-	// Save workspace path if using jj workspace
-	if let Some(ws_path) = &workspace_path {
-		let ws_marker = session_workspace_path(&session)?;
-		fs::write(&ws_marker, ws_path.to_string_lossy().as_ref())?;
-	}
-
-	// Build the command with optional initial prompt (passed as CLI arg, like whop.sh)
-	// Prefer explicit prompt if provided, otherwise build one from task path
-	let jj_note = if workspace {
-		// Capture jj status and log for context
-		let jj_status = Command::new("jj")
-			.arg("status")
-			.current_dir(&target_dir)
-			.output()
-			.ok()
-			.and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).to_string()) } else { None })
-			.unwrap_or_default();
-		// Get log with graph showing recent history
-		let jj_log = Command::new("jj")
-			.arg("log")
-			.arg("--limit")
-			.arg("10")
-			.current_dir(&target_dir)
-			.output()
-			.ok()
-			.and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).to_string()) } else { None })
-			.unwrap_or_default();
-		format!(
-			"Note: You are in a jj workspace. Use `jj` commands instead of `git` (e.g., `jj status`, `jj log`, `jj new`, `jj describe -m \"msg\"`).{}",
-			if !jj_status.is_empty() || !jj_log.is_empty() {
-				format!("\n\n```\n{}\n{}\n```", jj_status.trim(), jj_log.trim())
-			} else {
-				String::new()
-			}
-		)
-	} else {
-		String::new()
-	};
+	// Build the command with optional initial prompt
+	// Include worktree hint for implementation tasks
+	let worktree_note = "\n\nIMPORTANT: If this task involves writing code (not just research), ask the user: \"Do you want me to create a git worktree for isolation?\" If yes, call `/worktree` to set up an isolated workspace.";
 	let initial_prompt = prompt.clone().map(|p| {
-		if workspace && !p.contains("jj workspace") {
-			format!("{}\n\n{}", p, jj_note)
-		} else {
-			p
-		}
+		format!("{}{}", p, worktree_note)
 	}).or_else(|| {
 		task.as_ref().map(|task_path| {
-			let base = format!(
-				"Starting task. Read {} for context. Summarize the task before acting.",
-				task_path
-			);
-			if workspace {
-				format!("{}\n\n{}", base, jj_note)
-			} else {
-				base
-			}
+			format!(
+				"Starting task. Read {} for context. Summarize the task before acting.{}",
+				task_path,
+				worktree_note
+			)
 		})
 	});
 
@@ -911,10 +712,10 @@ fn session_yolo_path(session: &str) -> Result<PathBuf> {
 	Ok(dir.join("yolo"))
 }
 
-fn session_workspace_path(session: &str) -> Result<PathBuf> {
+fn session_worktree_path(session: &str) -> Result<PathBuf> {
 	let dir = session_store_dir()?.join(session);
 	fs::create_dir_all(&dir)?;
-	Ok(dir.join("workspace"))
+	Ok(dir.join("worktree"))
 }
 
 fn is_yolo_session(session: &str) -> bool {
@@ -923,8 +724,8 @@ fn is_yolo_session(session: &str) -> bool {
 		.unwrap_or(false)
 }
 
-fn get_workspace_path(session: &str) -> Option<PathBuf> {
-	session_workspace_path(session)
+fn get_worktree_path(session: &str) -> Option<PathBuf> {
+	session_worktree_path(session)
 		.ok()
 		.and_then(|p| fs::read_to_string(&p).ok())
 		.map(|s| PathBuf::from(s.trim()))
@@ -1222,8 +1023,7 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 	let mut new_agent_buf = String::new();
 	let mut new_agent_due = String::from("tomorrow"); // pre-filled, can be deleted
 	let mut new_agent_notify = String::from("no one"); // pre-filled, can be deleted
-	let mut new_agent_workspace = cfg.general.workspace_default; // jj workspace toggle
-	let mut new_agent_field = 0; // 0 = description, 1 = notify, 2 = due, 3 = workspace
+	let mut new_agent_field = 0; // 0 = description, 1 = notify, 2 = due
 	let pipe_status: std::collections::HashMap<String, String> =
 		std::collections::HashMap::new();
 	// Track previous status for each session to detect state changes for notifications
@@ -1411,7 +1211,7 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 					spans.push(Span::styled(status_text, status_style));
 					spans.push(Span::raw(" "));
 					if s.is_yolo { spans.push(Span::styled("⚠️ ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))); }
-					if s.workspace_path.is_some() { spans.push(Span::styled("[jj] ", Style::default().fg(Color::Magenta))); }
+					if s.worktree_path.is_some() { spans.push(Span::styled("[wt] ", Style::default().fg(Color::Cyan))); }
 					spans.push(Span::raw(&s.name));
 					spans.push(Span::styled(format!(" · {}", age), Style::default().fg(Color::DarkGray)));
 					if let Some(task) = &s.task { spans.push(Span::raw(" · ")); spans.push(Span::raw(&task.title)); }
@@ -1573,17 +1373,8 @@ Did you run /done in Claude first?
 					if new_agent_field == 0 { "█" } else { "" },
 					if new_agent_field == 1 { "█" } else { "" },
 					if new_agent_field == 2 { "█" } else { "" },
-					if new_agent_field == 3 { "█" } else { "" },
 				];
 				let due_display = &new_agent_due;
-				// Only show workspace option if jj is enabled in config
-				let workspace_line = if cfg.general.workspace_default {
-					let workspace_indicator = if new_agent_workspace { "●" } else { "○" };
-					let workspace_highlight = if new_agent_field == 3 { ">" } else { " " };
-					format!("\n{workspace_highlight}[Workspace: {workspace_indicator}]{}  (Space to toggle)", cursors[3])
-				} else {
-					String::new()
-				};
 				let body = format!(
 					r#"What are you working on?
 > {}{}
@@ -1592,13 +1383,12 @@ Who should be notified when done?
 > {}{}
 
 Due date (MM-DD or leave blank for tomorrow)
-> {}{}{}
+> {}{}
 
 Tab to switch fields, Enter to start, Esc to cancel"#,
 					new_agent_buf, cursors[0],
 					new_agent_notify, cursors[1],
 					due_display, cursors[2],
-					workspace_line,
 				);
 				let overlay = Paragraph::new(body)
 					.block(
@@ -1625,7 +1415,7 @@ work more effectively with AI coding agents:
   /done       - End session, log work
   /interview  - Detailed task planning
   /log        - Save progress to task file
-  /workspace  - Move to isolated jj workspace
+  /worktree   - Create isolated git worktree
   /poll-pr    - Monitor PR until CI green
   /qa-swarm   - QA test the swarm TUI
 
@@ -1722,16 +1512,11 @@ Install these commands to ~/.claude/commands/?
 					// Fields: 0 = description, 1 = notify, 2 = due, 3 = workspace
 					if new_agent_mode {
 						match key.code {
-							KeyCode::Char(' ') if new_agent_field == 3 => {
-								// Toggle workspace on Space when on workspace field
-								new_agent_workspace = !new_agent_workspace;
-							}
 							KeyCode::Char(c) if !c.is_control() => {
 								match new_agent_field {
 									0 => new_agent_buf.push(c),
 									1 => new_agent_notify.push(c),
 									2 => new_agent_due.push(c),
-									3 => {} // workspace field - Space toggles (handled above)
 									_ => {}
 								}
 							}
@@ -1740,18 +1525,14 @@ Install these commands to ~/.claude/commands/?
 									0 => { new_agent_buf.pop(); }
 									1 => { new_agent_notify.pop(); }
 									2 => { new_agent_due.pop(); }
-									3 => {} // workspace field - no backspace action
 									_ => {}
 								}
 							}
 							KeyCode::Tab => {
-								// Only 3 fields if workspace is hidden, 4 if shown
-								let max_field = if cfg.general.workspace_default { 3 } else { 2 };
-								new_agent_field = (new_agent_field + 1) % (max_field + 1);
+								new_agent_field = (new_agent_field + 1) % 3;
 							}
 							KeyCode::BackTab => {
-								let max_field = if cfg.general.workspace_default { 3 } else { 2 };
-								new_agent_field = if new_agent_field == 0 { max_field } else { new_agent_field - 1 };
+								new_agent_field = if new_agent_field == 0 { 2 } else { new_agent_field - 1 };
 							}
 							KeyCode::Enter => {
 								if !new_agent_buf.is_empty() {
@@ -1766,20 +1547,17 @@ Install these commands to ~/.claude/commands/?
 									} else {
 										Some(new_agent_due.clone())
 									};
-									match create_task_and_start_agent_with_workspace(
+									match create_task_and_start_agent(
 										cfg,
 										&new_agent_buf,
 										notify.as_deref(),
 										due.as_deref(),
-										new_agent_workspace,
 									) {
 										Ok(session_name) => {
-											let ws_note = if new_agent_workspace { " [jj workspace]" } else { "" };
 											status_message = Some((
 												format!(
-													"Started {}{} (run /interview in Claude to fill task details)",
-													session_name,
-													ws_note
+													"Started {} (run /interview in Claude to fill task details)",
+													session_name
 												),
 												Instant::now(),
 											));
@@ -1812,7 +1590,6 @@ Install these commands to ~/.claude/commands/?
 								new_agent_buf.clear();
 								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
-								new_agent_workspace = cfg.general.workspace_default;
 								new_agent_field = 0;
 							}
 							KeyCode::Esc => {
@@ -1820,7 +1597,6 @@ Install these commands to ~/.claude/commands/?
 								new_agent_buf.clear();
 								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
-								new_agent_workspace = cfg.general.workspace_default;
 								new_agent_field = 0;
 							}
 							_ => {}
@@ -1862,7 +1638,6 @@ Install these commands to ~/.claude/commands/?
 								new_agent_buf.clear();
 								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
-								new_agent_workspace = cfg.general.workspace_default;
 								new_agent_field = 0;
 							} else if send_input_mode {
 								send_input_mode = false;
@@ -2536,11 +2311,11 @@ Claude Slash Commands
   /log        save progress to task
   /interview  detailed task planning
   /poll-pr    monitor PR until CI passes
-  /workspace  move to isolated jj workspace
+  /worktree   create isolated git worktree
 
-jj Workspaces (requires jj git init --colocate)
-  New agent: Tab to [Workspace] field, Space to enable
-  Config: workspace_default = true in ~/.swarm/config.toml
+Git Worktrees
+  Claude asks if you want a worktree for code tasks
+  Config: worktree_dir = "~/worktrees" in ~/.swarm/config.toml
 
 tmux: Alt+d detach · Alt+↑/↓ scroll
 
@@ -2623,24 +2398,8 @@ fn mark_done(session: &AgentSession, _cfg: &Config) -> Result<()> {
 	// Just kill the session and clean up session store
 	kill_session(&session.session_name)?;
 
-	// Clean up jj workspace if one exists
-	if let Some(workspace_path) = &session.workspace_path {
-		// Need to run `jj workspace forget` from the parent repo (where .jj lives)
-		// The workspace path itself doesn't have .jj, we need to find the parent
-		// We can find it by checking if .jj exists in parent directories
-		if let Some(parent_repo) = find_jj_repo_from_workspace(workspace_path) {
-			// Forget the workspace from jj's perspective
-			let _ = Command::new("jj")
-				.arg("workspace")
-				.arg("forget")
-				.arg(workspace_path)
-				.current_dir(&parent_repo)
-				.stderr(Stdio::null())
-				.status();
-		}
-		// Remove the workspace directory
-		let _ = fs::remove_dir_all(workspace_path);
-	}
+	// Note: We keep worktrees when sessions are marked done
+	// They can be manually cleaned with `git worktree remove`
 
 	// Clean up session metadata
 	if let Ok(marker) = session_task_path(&session.session_name) {
@@ -2652,29 +2411,6 @@ fn mark_done(session: &AgentSession, _cfg: &Config) -> Result<()> {
 	// Remove log file
 	let _ = fs::remove_file(&session.log_path);
 	Ok(())
-}
-
-/// Find the jj repo root by checking for .jj in parent directories of a workspace
-fn find_jj_repo_from_workspace(workspace_path: &Path) -> Option<PathBuf> {
-	// The workspace itself has .jj pointing back to parent, but we need the main repo
-	// jj stores this in .jj/repo, but simpler approach: look for .jj in workspace
-	// and use jj to find the real root
-	let jj_dir = workspace_path.join(".jj");
-	if jj_dir.exists() {
-		// Run `jj root` to find the actual repo root
-		if let Ok(output) = Command::new("jj")
-			.arg("root")
-			.current_dir(workspace_path)
-			.stderr(Stdio::null())
-			.output()
-		{
-			if output.status.success() {
-				let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-				return Some(PathBuf::from(root));
-			}
-		}
-	}
-	None
 }
 
 #[allow(dead_code)] // May be useful for future daily logging features
@@ -2710,19 +2446,15 @@ fn append_daily(session: &AgentSession, cfg: &Config) -> Result<()> {
 }
 
 fn start_from_task(cfg: &Config, task: &TaskEntry) -> Result<String> {
-	start_from_task_inner(cfg, task, false, cfg.general.workspace_default)
+	start_from_task_inner(cfg, task, false)
 }
 
 /// ⚠️ YOLO MODE - Start task with --dangerously-skip-permissions
 fn start_from_task_yolo(cfg: &Config, task: &TaskEntry) -> Result<String> {
-	start_from_task_inner(cfg, task, true, false)
+	start_from_task_inner(cfg, task, true)
 }
 
-fn start_from_task_with_workspace(cfg: &Config, task: &TaskEntry, workspace: bool) -> Result<String> {
-	start_from_task_inner(cfg, task, false, workspace)
-}
-
-fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, workspace: bool) -> Result<String> {
+fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool) -> Result<String> {
 	let base_name = slugify(task.title.clone());
 	// Truncate base name to avoid "file name too long" errors (macOS limit is 255 bytes)
 	// Keep it under 100 chars to leave room for session prefix and other path components
@@ -2733,12 +2465,6 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, work
 	};
 	let session_name = unique_session_name(&truncated_name)?;
 	let repo = std::env::current_dir()?.to_string_lossy().into_owned();
-
-	// Auto-enable workspace for jj repos if user has opted in via workspace_default config
-	// Workspace only works for jj repos - skip silently for non-jj repos
-	let repo_path = PathBuf::from(&repo);
-	let is_jj_repo = repo_path.join(".jj").exists();
-	let use_workspace = is_jj_repo && (workspace || cfg.general.workspace_default);
 
 	// Build prompt with additional directories hint if configured
 	let additional_dirs_note = if !cfg.allowed_tools.additional_directories.is_empty() {
@@ -2761,13 +2487,11 @@ fn start_from_task_inner(cfg: &Config, task: &TaskEntry, auto_accept: bool, work
 		task.path.display(),
 		additional_dirs_note
 	);
-	// Note: handle_new will append jj workspace note if workspace=true
 	handle_new(
 		cfg,
 		session_name.clone(),
 		cfg.general.default_agent.clone(),
 		repo,
-		use_workspace, // Auto-enabled for jj repos
 		Some(prompt),
 		Some(task.path.to_string_lossy().into_owned()),
 		auto_accept,
@@ -2799,7 +2523,6 @@ fn quick_new(cfg: &Config, task: Option<String>) -> Result<String> {
 		base.clone(),
 		cfg.general.default_agent.clone(),
 		repo,
-		false,
 		None,
 		task,
 		false, // auto_accept
@@ -2808,7 +2531,6 @@ fn quick_new(cfg: &Config, task: Option<String>) -> Result<String> {
 	Ok(base)
 }
 
-#[allow(dead_code)] // Kept for backward compatibility, see create_task_and_start_agent_with_workspace
 /// Create a task file from description and start an agent for it
 fn create_task_and_start_agent(
 	cfg: &Config,
@@ -2899,97 +2621,6 @@ summary: {}
 	start_from_task(cfg, &task_entry)
 }
 
-/// Create a task file from description and start an agent for it (with workspace option)
-fn create_task_and_start_agent_with_workspace(
-	cfg: &Config,
-	description: &str,
-	notify: Option<&str>,
-	due_input: Option<&str>,
-	workspace: bool,
-) -> Result<String> {
-	// Slugify the description for filename
-	let slug = slug::slugify(description);
-	let slug = if slug.len() > 50 {
-		slug[..50].to_string()
-	} else {
-		slug
-	};
-
-	// Calculate due date
-	let today = Local::now().date_naive();
-	let due_date = if let Some(input) = due_input {
-		// Parse MM-DD format
-		let parts: Vec<&str> = input.split('-').collect();
-		if parts.len() == 2 {
-			if let (Ok(month), Ok(day)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-				// Use current year, bump to next year if date has passed
-				let mut year = today.year();
-				if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
-					if date < today {
-						year += 1;
-					}
-					NaiveDate::from_ymd_opt(year, month, day).unwrap_or(today + chrono::Duration::days(1))
-				} else {
-					today + chrono::Duration::days(1)
-				}
-			} else {
-				today + chrono::Duration::days(1)
-			}
-		} else {
-			today + chrono::Duration::days(1)
-		}
-	} else {
-		today + chrono::Duration::days(1)
-	};
-
-	// Build task file content
-	let notify_section = if let Some(who) = notify {
-		format!("- {}", who)
-	} else {
-		"- (fill in who to notify)".to_string()
-	};
-
-	let content = format!(
-		r#"---
-status: todo
-due: {}
-tags: [work]
-summary: {}
----
-
-# {}
-
-{}
-
-## When done
-{}
-
-## Process Log
-(Claude logs progress here)
-"#,
-		due_date.format("%Y-%m-%d"),
-		description,
-		description,
-		description,
-		notify_section,
-	);
-
-	// Write task file
-	let tasks_dir = PathBuf::from(&cfg.general.tasks_dir);
-	let task_path = tasks_dir.join(format!("{}.md", slug));
-	fs::write(&task_path, &content)?;
-
-	// Create agent with this task
-	let task_entry = TaskEntry {
-		title: description.to_string(),
-		path: task_path.clone(),
-		due: Some(due_date),
-		status: Some("todo".to_string()),
-	};
-
-	start_from_task_with_workspace(cfg, &task_entry, workspace)
-}
-
 #[allow(dead_code)] // Kept for potential Claude-assisted task creation
 fn quick_new_with_prompt(cfg: &Config, prompt: &str) -> Result<String> {
 	let base = format!("task-creator-{}", chrono::Local::now().format("%H%M%S"));
@@ -2999,7 +2630,6 @@ fn quick_new_with_prompt(cfg: &Config, prompt: &str) -> Result<String> {
 		base.clone(),
 		cfg.general.default_agent.clone(),
 		repo,
-		false,
 		Some(prompt.to_string()),
 		None,
 		false, // auto_accept

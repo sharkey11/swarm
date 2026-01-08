@@ -36,5 +36,5 @@ Format for CLAUDE.md: `Rule + 1-line context`
 ## 4. Notifications
 Check task file's `## When done` section. Remind user who to notify.
 
-## 5. Workspace cleanup
-If in jj workspace, note the path. Swarm handles cleanup on done.
+## 5. Worktree info
+If in a git worktree, note the branch and path. Worktrees are kept after done so work can be resumed later.

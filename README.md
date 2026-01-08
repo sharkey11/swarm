@@ -73,8 +73,8 @@ swarm update
 - **YOLO mode** - Auto-accept permissions for trusted tasks
 - **Allowed tools** - Configure safe commands to auto-accept in `[allowed_tools]` config
 - **Daily logs** - Browse your daily log files with preview (press `l`)
-- **Claude hooks** - Built-in slash commands (/done, /log, /interview, /poll-pr, /workspace)
-- **jj workspaces** - Instant parallel agent sessions with jj (no git fetch needed)
+- **Claude hooks** - Built-in slash commands (/done, /log, /interview, /poll-pr, /worktree)
+- **Git worktrees** - Isolated parallel agent sessions using native git worktrees
 
 ## Key Bindings
 
@@ -183,95 +183,70 @@ Swarm includes Claude Code slash commands that work inside your agents:
 - **/log** - Save progress to the linked task file
 - **/interview** - Detailed task planning before starting
 - **/poll-pr** - Monitor PR until CI passes
-- **/workspace** - Move to isolated jj workspace
+- **/worktree** - Create isolated git worktree for the task
 
 Hooks are installed to `~/.claude/commands/` on first run.
 
-## jj Workspaces
+## Git Worktrees
 
-Instant parallel agent sessions using [jj](https://github.com/martinvonz/jj) workspaces (faster than git worktrees).
+Isolated parallel agent sessions using native git worktrees.
 
-### Why jj?
+### Why Worktrees?
 
-- **Instant workspace creation** - No fetch/clone needed, workspaces are instant
-- **Parallel agents** - Each agent works in isolation, no merge conflicts
-- **Auto-tracked changes** - No `git add` needed, jj tracks everything
-- **Clean history** - Easy to rebase and squash before PRs
+- **Native git** - No extra tooling needed, works with any git repo
+- **Parallel agents** - Each agent works in isolation on its own branch
+- **Fresh from main** - Always creates worktree from latest `origin/main`
+- **Persists on done** - Worktrees are kept after session ends so work can be resumed
 
-### Setup (One-Time)
+### How It Works
 
-```bash
-# 1. Install jj
-brew install jj
+When you start a new agent for a code task, Claude will ask:
 
-# 2. Init in your repo (works alongside git)
-cd your-repo
-jj git init --colocate
+> "Do you want me to create a git worktree for isolation?"
 
-# 3. Configure user (for commits)
-jj config set --user user.name "Your Name"
-jj config set --user user.email "you@example.com"
-```
+If you say yes, Claude calls `/worktree` which:
 
-### Opting In
+1. Fetches latest `origin/main`
+2. Creates a worktree at `~/worktrees/{task-name}`
+3. Creates a branch `{branch_prefix}/{task-slug}` from main
+4. Changes to the worktree directory
 
-**Per-agent:** When creating a new agent, press Tab to the `[Workspace: ○]` field, then Space to enable it. The indicator changes to `●` when enabled.
+Sessions with worktrees show `[wt]` badge.
 
-```
-╭─ New Agent ─────────────────────────────────╮
-│ Task: fix auth bug                          │
-│ Repo: ~/code/myproject                      │
-│ [Workspace: ●]  (Space to toggle)           │  ← Toggle here
-╰─────────────────────────────────────────────╯
-```
-
-**Make it the default:** Set `workspace_default = true` in your config:
+### Configuration
 
 ```toml
 # ~/.swarm/config.toml
 [general]
-workspace_dir = "~/workspaces"
-workspace_default = true  # New agents use jj workspaces by default
+worktree_dir = "~/worktrees"  # Where worktrees are created
 ```
 
-**Mid-session migration:** If you started without a workspace and need isolation, use the `/workspace` command inside your agent session. This creates a workspace and moves your work there.
-
-Sessions with workspaces show `[jj]` badge. Auto-cleans up on done.
-
-### jj Workflow for PRs
+### Worktree Workflow for PRs
 
 ```bash
-# Configure user (one-time)
-jj config set --user user.name "Your Name"
-jj config set --user user.email "you@example.com"
-
 # Make changes, then:
-jj describe -m "your commit message"
-jj rebase -r @ -d main              # Skip empty parent commit
-jj bookmark create sharkey11/feature-name
-jj git push --bookmark sharkey11/feature-name --allow-new
+git add -A
+git commit -m "feat: your changes"
+git push -u origin sharkey11/feature-name
 
-# Create PR (must use --head since not a git repo)
-gh pr create --repo whopio/swarm --head sharkey11/feature-name --base main
+# Create PR
+gh pr create --title "..." --body "..."
 ```
 
-### git → jj Cheat Sheet
+### Cleanup
 
-| What you want | git | jj |
-|---------------|-----|-----|
-| Check status | `git status` | `jj status` |
-| Commit changes | `git add . && git commit -m "msg"` | `jj describe -m "msg"` |
-| View history | `git log` | `jj log` |
-| Create branch | `git checkout -b feature` | `jj bookmark create feature` |
-| Push branch | `git push -u origin feature` | `jj git push --bookmark feature --allow-new` |
-| Switch to main | `git checkout main` | `jj new main` |
+Worktrees are kept after session ends so you can resume work later. To manually clean up:
 
-**Key difference:** jj auto-tracks all changes. No `git add` needed.
+```bash
+# List all worktrees
+git worktree list
 
-### Learn jj
+# Remove a specific worktree
+git worktree remove ~/worktrees/task-name
 
-- [15 min video intro](https://www.youtube.com/watch?v=bx_LGilOuE4)
-- [Official docs](https://jj-vcs.github.io/jj/)
+# Clean up stale references
+git worktree prune
+```
 
 ## Development
 
