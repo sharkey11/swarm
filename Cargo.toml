@@ -1,10 +1,10 @@
 [package]
 name = "swarm"
-version = "0.1.21"
+version = "0.1.22"
 edition = "2021"
 description = "Terminal dashboard for managing multiple AI coding agents in parallel"
 license = "MIT"
-repository = "https://github.com/whopio/swarm"
+repository = "https://github.com/sharkey11/swarm"
 keywords = ["tui", "ai", "agents", "claude", "tmux"]
 categories = ["command-line-utilities", "development-tools"]
 
