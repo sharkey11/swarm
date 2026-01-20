@@ -1026,7 +1026,8 @@ fn run_tui(cfg: &mut Config) -> Result<()> {
 	let mut new_agent_buf = String::new();
 	let mut new_agent_due = String::from("tomorrow"); // pre-filled, can be deleted
 	let mut new_agent_notify = String::from("no one"); // pre-filled, can be deleted
-	let mut new_agent_field = 0; // 0 = description, 1 = notify, 2 = due
+	let mut new_agent_field = 0; // 0 = description, 1 = notify, 2 = due, 3 = yolo
+	let mut new_agent_yolo = true; // YOLO mode on by default
 	let pipe_status: std::collections::HashMap<String, String> =
 		std::collections::HashMap::new();
 	// Track previous status for each session to detect state changes for notifications
@@ -1376,8 +1377,10 @@ Did you run /done in Claude first?
 					if new_agent_field == 0 { "█" } else { "" },
 					if new_agent_field == 1 { "█" } else { "" },
 					if new_agent_field == 2 { "█" } else { "" },
+					if new_agent_field == 3 { "█" } else { "" },
 				];
 				let due_display = &new_agent_due;
+				let yolo_display = if new_agent_yolo { "[x] YOLO mode (skip permission prompts)" } else { "[ ] YOLO mode (skip permission prompts)" };
 				let body = format!(
 					r#"What are you working on?
 > {}{}
@@ -1388,10 +1391,13 @@ Who should be notified when done?
 Due date (MM-DD or leave blank for tomorrow)
 > {}{}
 
-Tab to switch fields, Enter to start, Esc to cancel"#,
+{}{}
+
+Tab to switch fields, Space to toggle YOLO, Enter to start, Esc to cancel"#,
 					new_agent_buf, cursors[0],
 					new_agent_notify, cursors[1],
 					due_display, cursors[2],
+					yolo_display, cursors[3],
 				);
 				let overlay = Paragraph::new(body)
 					.block(
@@ -1532,10 +1538,13 @@ Install these commands to ~/.claude/commands/?
 								}
 							}
 							KeyCode::Tab => {
-								new_agent_field = (new_agent_field + 1) % 3;
+								new_agent_field = (new_agent_field + 1) % 4;
 							}
 							KeyCode::BackTab => {
-								new_agent_field = if new_agent_field == 0 { 2 } else { new_agent_field - 1 };
+								new_agent_field = if new_agent_field == 0 { 3 } else { new_agent_field - 1 };
+							}
+							KeyCode::Char(' ') if new_agent_field == 3 => {
+								new_agent_yolo = !new_agent_yolo;
 							}
 							KeyCode::Enter => {
 								if !new_agent_buf.is_empty() {
@@ -1555,6 +1564,7 @@ Install these commands to ~/.claude/commands/?
 										&new_agent_buf,
 										notify.as_deref(),
 										due.as_deref(),
+										new_agent_yolo,
 									) {
 										Ok(session_name) => {
 											status_message = Some((
@@ -1594,6 +1604,7 @@ Install these commands to ~/.claude/commands/?
 								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
 								new_agent_field = 0;
+								new_agent_yolo = true;
 							}
 							KeyCode::Esc => {
 								new_agent_mode = false;
@@ -1601,6 +1612,7 @@ Install these commands to ~/.claude/commands/?
 								new_agent_notify = String::from("no one");
 								new_agent_due = String::from("tomorrow");
 								new_agent_field = 0;
+								new_agent_yolo = true;
 							}
 							_ => {}
 						}
@@ -2540,6 +2552,7 @@ fn create_task_and_start_agent(
 	description: &str,
 	notify: Option<&str>,
 	due_input: Option<&str>,
+	yolo: bool,
 ) -> Result<String> {
 	// Slugify the description for filename
 	let slug = slug::slugify(description);
@@ -2621,7 +2634,7 @@ summary: {}
 		status: Some("todo".to_string()),
 	};
 
-	start_from_task(cfg, &task_entry)
+	start_from_task_inner(cfg, &task_entry, yolo)
 }
 
 #[allow(dead_code)] // Kept for potential Claude-assisted task creation
