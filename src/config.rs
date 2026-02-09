@@ -147,9 +147,6 @@ tools = [
   "Bash(md5sum:*)",
   "Bash(shasum:*)",
   "Bash(sha256sum:*)",
-  # Swarm daily logs
-  "Bash(mkdir -p ~/.swarm/daily:*)",
-  "Bash(cat >> ~/.swarm/daily/:*)",
   # System info (read-only)
   "Bash(echo:*)",
   "Bash(date:*)",
@@ -372,9 +369,6 @@ fn default_allowed_tools() -> Vec<String> {
 		"Bash(md5sum:*)".into(),
 		"Bash(shasum:*)".into(),
 		"Bash(sha256sum:*)".into(),
-		// Swarm daily logs
-		"Bash(mkdir -p ~/.swarm/daily:*)".into(),
-		"Bash(cat >> ~/.swarm/daily/:*)".into(),
 		// System info (read-only)
 		"Bash(echo:*)".into(),
 		"Bash(date:*)".into(),

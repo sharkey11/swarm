@@ -91,7 +91,7 @@ Swarm follows Steve Krug's "Don't Make Me Think" principles:
 7. [ ] Leave blank or enter "01-15" for Jan 15
 8. [ ] Press `Enter` → creates task + starts agent
 9. [ ] Agent appears in list with task title
-10. [ ] Task file created in `~/.swarm/tasks/`
+10. [ ] Task file created in configured `tasks_dir`
 
 **Verify task file has:**
 - `status: in-progress`
