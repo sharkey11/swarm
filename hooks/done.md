@@ -6,7 +6,7 @@ Wrap up the session. Keep it brief.
 1-3 bullet points of what shipped. High-level only.
 
 ## 2. Log to daily file
-Append to `~/.swarm/daily/YYYY-MM-DD.md`:
+Read `~/.swarm/config.toml` to find the `daily_dir` setting, then append to `<daily_dir>/YYYY-MM-DD.md`:
 
 ```markdown
 ## [Task name]
